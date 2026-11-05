@@ -1,1 +1,21 @@
-{ "chainId": 0, "note": "No public test deployment yet. The Sepolia deployment replaces this file with deployments/11155111.json." }
+{
+  "activePool": "0x5446B459861380D8882aaC329F7f5381D55e6ccB",
+  "borrowerOperations": "0xa116D326EB1979FE2B0730D2EaE316A54985BDF2",
+  "chainId": 11155111,
+  "collSurplusPool": "0x488f02BD8Ea3ED78a60b7A9A88460341A6a50ebb",
+  "defaultPool": "0xf6C70E49E9557244DcA0Dd8EeCA6E87f1af254Ad",
+  "deployer": "0xEa312ad54a17E916cc2A105823530626c69Ae0F2",
+  "ethUsdAggregator": "0x694AA1769357215DE4FAC081bf1f309aDC325306",
+  "gasPool": "0xc64272Dff94DB0e4A94eb6d9c85441aF5665f99C",
+  "hintHelpers": "0x08b4F637c877C874B3928c61a540DbcD53563367",
+  "multiTroveGetter": "0x4335835B49e7fB8DEa4c88990791Af14211DB1b6",
+  "oct": "0x1A58d13Ca4843C8d7ef714cee62E9BA33fE22E76",
+  "priceFeed": "0x3402B63bF31cF09C64CE0F0fD1237fc84C12B1a9",
+  "redemptionBuffer": "0xad5C5eEB247dD859971BCde37e9748e697343876",
+  "sortedTroves": "0xe3350E55E2Dbe2608d6962dC44BD18bD7F387912",
+  "stabilityPool": "0xe3416A25139649aaa2005fB0c59D41De9b6d8348",
+  "successionRegistry": "0x34a25255a10f888eDBDA4D505CEf9D358fd4F692",
+  "surplusSink": "0xEa312ad54a17E916cc2A105823530626c69Ae0F2",
+  "troveManager": "0xE1f6475A7De135e38881bD75F481ac89E3ED744A",
+  "wstETH": "0x11f3946AC00d9CCd1c32D71018bc312A467BAC21"
+}

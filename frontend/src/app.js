@@ -117,7 +117,7 @@ async function switchNetwork() {
 }
 async function networkBadge() {
   const b = $('net-badge');
-  if (!me) { b.textContent = `reads: ${NET.name}`; b.className = 'badge badge-muted'; return; }
+  if (!me) { b.textContent = `${NET.name} · read-only`; b.className = 'badge badge-muted'; return; }
   const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
   const ok = parseInt(chainIdHex, 16) === D.chainId;
   b.textContent = ok ? `${NET.name} · ${short(me)}` : `wrong network, switch to ${NET.name}`;
@@ -175,7 +175,7 @@ async function refreshBuffer() {
   $('b-target').textContent = `$${fmt(target, 0)} (15% of ${fmt(circ, 0)} OCT)`;
   $('b-inv').textContent = `${fmt(inv, 2)} OCT`;
   $('b-ceiling').textContent = `$${fmt(ceiling, 0)} · used ${fmt(debt, 0)}`;
-  $('rd-preview').textContent = `The buffer can serve ${fmt(cap, 0)} OCT right now; anything above that is redeemed from the riskiest vaults.`;
+  $('rd-preview').textContent = `The reserve can serve ${fmt(cap, 0)} OCT right now; anything above that is redeemed from the riskiest vaults.`;
 }
 
 async function refreshPoolAndVault() {
@@ -386,7 +386,7 @@ async function boot() {
     $('net-badge').textContent = 'test deployment pending';
     $('btn-connect').disabled = true;
     document.querySelectorAll('.panel').forEach((p) => { p.querySelectorAll('button, input').forEach((el) => { el.disabled = true; }); });
-    toast('The contracts are not yet deployed on the public test network. The strategy section reads as usual; the vault opens once the deployment lands.', 'warn');
+    toast('The contracts are not yet deployed on the public test network. The strategy and mechanics read as usual; the vault opens once the deployment lands.', 'warn');
     return;
   }
   pub = createPublicClient({ chain: NET.chain, transport: http(NET.rpc), pollingInterval: 2000 });

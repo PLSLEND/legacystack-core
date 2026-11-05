@@ -23,7 +23,7 @@ import {Script, console} from "forge-std/Script.sol";
 */
 interface IDeployTM { function setAddresses(address,address,address,address,address,address,address,address,address,address,address) external; }
 interface IDeployBO { function setAddresses(address,address,address,address,address,address,address,address,address,address,address,address) external; function openTrove(uint,uint,address,address,uint) external; }
-interface IDeploySP { function setAddresses(address,address,address,address,address,address,address,address,address) external; function provideToSP(uint,address) external; }
+interface IDeploySP { function setAddresses(address,address,address,address,address,address,address,address,address) external; function provideToSP(uint) external; }
 interface IDeployAP { function setAddresses(address,address,address,address,address,address) external; }
 interface IDeployDP { function setAddresses(address,address,address) external; }
 interface IDeployCSP { function setAddresses(address,address,address,address) external; }
@@ -93,7 +93,7 @@ contract Deploy is Script {
         IDeployWst(a.wst).mint(deployer, 20 ether);
         IDeployWst(a.wst).approve(a.bo, type(uint).max);
         IDeployBO(a.bo).openTrove(1e18, 2000e18, address(0), address(0), 10 ether);
-        IDeploySP(a.sp).provideToSP(1e18, address(0));
+        IDeploySP(a.sp).provideToSP(1e18);
 
         vm.stopBroadcast();
 

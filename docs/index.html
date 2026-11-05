@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LegacyStack testnet</title>
+<meta name="description" content="LegacyStack testnet: borrow against wstETH at a fixed rate, with succession built into the vault. Unaudited test deployment.">
+<meta name="robots" content="noindex, nofollow">
+<link rel="icon" href="assets/griffin.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="testnet-bar">Test network. Unaudited code. Nothing here has value, and nothing here is a promise about a future deployment.</div>
+
+<header class="site-header">
+  <a class="brand" href="#top">
+    <img src="assets/griffin.svg" alt="" class="brand-mark">
+    <span class="brand-text"><span class="brand-name">LegacyStack</span><span class="brand-sub">Digital wealth, credit &amp; inheritance</span></span>
+  </a>
+  <nav class="nav">
+    <a href="#strategy">The strategy</a>
+    <a href="#app">Vault</a>
+    <a href="#succession">Succession</a>
+    <a href="#buffer">Buffer</a>
+    <a href="#pool">Stability Pool</a>
+    <a href="#system">System</a>
+  </nav>
+  <div class="wallet">
+    <span id="net-badge" class="badge badge-muted">not connected</span>
+    <button id="btn-connect" class="btn btn-gold">Connect wallet</button>
+  </div>
+</header>
+
+<main id="top">
+
+<section class="hero">
+  <img src="assets/griffin.svg" alt="LegacyStack griffin" class="hero-mark">
+  <h1>Grow. Borrow. Pass&nbsp;it&nbsp;on.</h1>
+  <p class="lede">A borrowing protocol for people who think in decades. You keep the asset that grows, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
+  <p class="lede-small">Fixed rate. No account. No committee. Rules written once, in code, and never changed.</p>
+  <div class="hero-actions">
+    <a class="btn btn-gold" href="#app">Open the testnet vault</a>
+    <a class="btn btn-ghost" href="#strategy">Read the strategy first</a>
+  </div>
+</section>
+
+<section id="strategy" class="strategy">
+  <div class="strategy-head">
+    <h2>The strategy, in three moves</h2>
+    <p>Most people sell what grows to pay for what they need, and lose the growth. The old families never did that. They held the asset, borrowed against it, and handed it down. This protocol puts that habit into a vault anyone can open.</p>
+  </div>
+  <div class="cards">
+    <article class="card">
+      <div class="card-num">I</div>
+      <h3>Grow</h3>
+      <p>Hold an asset that compounds and keep holding it. Staked ether (wstETH) earns its own yield inside the vault, year after year, whether you borrow or not. The vault never touches it except to protect itself.</p>
+      <p class="card-note">What does not happen: nobody sells your collateral for you unless it falls below the safety line you can read on the screen.</p>
+    </article>
+    <article class="card">
+      <div class="card-num">II</div>
+      <h3>Borrow</h3>
+      <p>Draw OCT, the protocol's loan unit, against your wstETH. The interest is fixed at 1.5% a year for the life of the deployment. There is no application, no credit file and no bank. You choose how much to draw; the protocol only enforces the floor of 110% collateral.</p>
+      <p class="card-note">OCT is what you borrow and what you repay. It is minted when you borrow and burned when you repay.</p>
+    </article>
+    <article class="card">
+      <div class="card-num">III</div>
+      <h3>Pass it on</h3>
+      <p>Name up to ten heirs and their shares. Every action you take with your key counts as a sign of life. After one year of silence and thirty more days of grace, anyone can trigger the settlement: the vault pays its own debt at par, then delivers what is left straight into your heirs' wallets.</p>
+      <p class="card-note">No lawyer, no custodian, no death certificate. Just a clock, and a plan you can change at any time.</p>
+    </article>
+  </div>
+  <div class="plain-words">
+    <h3>Plain words</h3>
+    <ul>
+      <li>The protocol holds no keys. Nobody can pause it, upgrade it, change the rate or take the collateral. Nobody can help you either: write your heirs down.</li>
+      <li>Borrowing has a 0.5% mint fee. Redemptions have a 0.75% floor fee. Fees and interest feed the Redemption Buffer, which protects borrowers from redemptions and sets how much the system may lend.</li>
+      <li>If your collateral ratio falls under 110%, your vault can be liquidated. Keep a margin; the dashboard shows your liquidation price.</li>
+      <li>This page is a test deployment of unaudited code on a test network. It teaches the mechanics. It is not an offer, not advice and not a promise.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="app" class="panel">
+  <div class="panel-head">
+    <h2>Your vault</h2>
+    <div class="row-stats">
+      <div class="stat"><span class="stat-label">wstETH price</span><span id="s-price" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">Oracle</span><span id="s-oracle" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">Your wstETH</span><span id="s-wst" class="stat-value">—</span></div>
+      <div class="stat"><span class="stat-label">Your OCT</span><span id="s-oct" class="stat-value">—</span></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="box">
+      <h3>Position</h3>
+      <dl class="kv">
+        <dt>Status</dt><dd id="v-status">—</dd>
+        <dt>Collateral</dt><dd id="v-coll">—</dd>
+        <dt>Debt</dt><dd id="v-debt">—</dd>
+        <dt>Collateral ratio</dt><dd id="v-icr">—</dd>
+        <dt>Liquidation price</dt><dd id="v-liq">—</dd>
+        <dt>Interest</dt><dd>1.5% a year, fixed</dd>
+      </dl>
+      <div class="actions">
+        <button id="btn-close" class="btn btn-ghost" disabled>Repay everything and close</button>
+        <button id="btn-claim-surplus" class="btn btn-ghost hidden">Claim leftover collateral</button>
+      </div>
+    </div>
+
+    <div class="box">
+      <h3 id="form-title">Open a vault</h3>
+      <form id="form-open">
+        <label>Collateral to deposit (wstETH)<input id="in-coll" type="number" step="any" min="0" placeholder="e.g. 2"></label>
+        <label>OCT to borrow<input id="in-debt" type="number" step="any" min="0" placeholder="minimum 1,800"></label>
+        <div class="preview" id="open-preview">Enter amounts to see the ratio, the fee and the liquidation price.</div>
+        <button class="btn btn-gold" type="submit" id="btn-open">Open vault</button>
+      </form>
+      <form id="form-adjust" class="hidden">
+        <div class="adjust-row">
+          <label>Add collateral (wstETH)<input id="adj-add-coll" type="number" step="any" min="0" placeholder="0"></label>
+          <label>Withdraw collateral (wstETH)<input id="adj-wd-coll" type="number" step="any" min="0" placeholder="0"></label>
+        </div>
+        <div class="adjust-row">
+          <label>Borrow more OCT<input id="adj-borrow" type="number" step="any" min="0" placeholder="0"></label>
+          <label>Repay OCT<input id="adj-repay" type="number" step="any" min="0" placeholder="0"></label>
+        </div>
+        <div class="preview" id="adjust-preview">One collateral change and one debt change per transaction.</div>
+        <button class="btn btn-gold" type="submit" id="btn-adjust">Adjust vault</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="box testnet-tools">
+    <h3>Testnet tools</h3>
+    <p>Test wstETH is free here: the faucet mints it to your wallet. Gas on the test network comes from a public faucet, see the links at the bottom.</p>
+    <div class="actions">
+      <button id="btn-faucet" class="btn btn-ghost">Mint 10 test wstETH</button>
+      <button id="btn-approve" class="btn btn-ghost">Approve wstETH once</button>
+    </div>
+  </div>
+</section>
+
+<section id="succession" class="panel">
+  <div class="panel-head">
+    <h2>Succession</h2>
+    <p class="panel-sub">One plan per wallet. It covers the vault, your Stability Pool deposit and any collateral left behind by a redemption. Shares are in percent and must add up to 100.</p>
+  </div>
+  <div class="grid-2">
+    <div class="box">
+      <h3>Your plan</h3>
+      <dl class="kv">
+        <dt>State</dt><dd id="p-state">—</dd>
+        <dt>Last sign of life</dt><dd id="p-last">—</dd>
+        <dt>Due</dt><dd id="p-due">—</dd>
+        <dt>Executable from</dt><dd id="p-exec">—</dd>
+        <dt>Heirs</dt><dd id="p-heirs">—</dd>
+        <dt>Fallback heir</dt><dd id="p-fallback">—</dd>
+      </dl>
+      <div class="actions">
+        <button id="btn-prove" class="btn btn-gold" disabled>I am here (prove life)</button>
+        <button id="btn-clear-plan" class="btn btn-ghost" disabled>Remove plan</button>
+      </div>
+    </div>
+    <div class="box">
+      <h3>Set or change the plan</h3>
+      <form id="form-plan">
+        <div id="heir-rows"></div>
+        <button type="button" id="btn-add-heir" class="btn btn-small">Add heir</button>
+        <label>Fallback heir (optional, receives what cannot be delivered)<input id="in-fallback" type="text" placeholder="0x…"></label>
+        <div class="preview" id="plan-preview">Shares must total 100%.</div>
+        <button class="btn btn-gold" type="submit">Save plan</button>
+      </form>
+    </div>
+  </div>
+  <div class="grid-2">
+    <div class="box">
+      <h3>Operator (optional)</h3>
+      <p class="small">An operator may add collateral and repay for you. If you allow it, it may also borrow and withdraw, always to your wallet, as long as the vault keeps the ratio floor you set. Operator actions never count as your sign of life.</p>
+      <form id="form-operator">
+        <label>Operator address<input id="op-addr" type="text" placeholder="0x…"></label>
+        <label class="check"><input id="op-active" type="checkbox" checked> Active</label>
+        <label class="check"><input id="op-borrow" type="checkbox"> May borrow and withdraw to me</label>
+        <label>Ratio floor for operator borrowing (%)<input id="op-floor" type="number" step="1" min="110" value="250"></label>
+        <button class="btn btn-ghost" type="submit">Save operator</button>
+      </form>
+    </div>
+    <div class="box">
+      <h3>Execute a plan (anyone)</h3>
+      <p class="small">When a wallet's plan is executable, anyone may call the settlement. The caller is paid a small reward from the estate. If the system cannot settle the whole debt at par today, the call does what it can and can be repeated.</p>
+      <form id="form-execute">
+        <label>Wallet<input id="ex-addr" type="text" placeholder="0x…"></label>
+        <div class="preview" id="ex-preview">Enter a wallet to read its state.</div>
+        <button class="btn btn-ghost" type="submit">Execute succession</button>
+      </form>
+      <div class="actions"><button id="btn-escrow" class="btn btn-ghost hidden">Claim escrow</button></div>
+    </div>
+  </div>
+</section>
+
+<section id="buffer" class="panel">
+  <div class="panel-head">
+    <h2>Redemption Buffer</h2>
+    <p class="panel-sub">A wstETH pot inside the protocol. Every fee and all interest end up here. Redemptions are served from the pot first, so vaults are touched only when it is empty. The pot also sets the debt ceiling: $1,000,000 plus $100 for every $1 it holds.</p>
+  </div>
+  <div class="row-stats">
+    <div class="stat"><span class="stat-label">Pot</span><span id="b-pot" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Target</span><span id="b-target" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">OCT inventory</span><span id="b-inv" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Debt ceiling</span><span id="b-ceiling" class="stat-value">—</span></div>
+  </div>
+  <div class="grid-3">
+    <div class="box">
+      <h3>Redeem OCT</h3>
+      <p class="small">Exchange OCT for collateral at the oracle price, minus the redemption fee. Minimum 5,000 OCT. The buffer serves first.</p>
+      <form id="form-redeem">
+        <label>OCT to redeem<input id="rd-amount" type="number" step="any" min="5000" placeholder="5000"></label>
+        <div class="preview" id="rd-preview"></div>
+        <button class="btn btn-ghost" type="submit">Redeem</button>
+      </form>
+    </div>
+    <div class="box">
+      <h3>Standing offer</h3>
+      <p class="small">Buy OCT from the inventory at the oracle price plus 0.5%, paying wstETH.</p>
+      <form id="form-buy">
+        <label>OCT to buy<input id="buy-amount" type="number" step="any" min="0" placeholder="100"></label>
+        <div class="preview" id="buy-preview"></div>
+        <button class="btn btn-ghost" type="submit">Buy inventory</button>
+      </form>
+    </div>
+    <div class="box">
+      <h3>Fill the pot</h3>
+      <p class="small">Anyone may add wstETH to the pot. It creates no claim; it strengthens every vault.</p>
+      <form id="form-fill">
+        <label>wstETH to add<input id="fill-amount" type="number" step="any" min="0" placeholder="1"></label>
+        <button class="btn btn-ghost" type="submit">Fill</button>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section id="pool" class="panel">
+  <div class="panel-head">
+    <h2>Stability Pool</h2>
+    <p class="panel-sub">OCT deposited here absorbs liquidated debt and receives the liquidated collateral in exchange, at a discount. Your deposit is part of your succession plan.</p>
+  </div>
+  <div class="grid-2">
+    <div class="box">
+      <dl class="kv">
+        <dt>Pool size</dt><dd id="sp-total">—</dd>
+        <dt>Your deposit</dt><dd id="sp-mine">—</dd>
+        <dt>Your collateral gain</dt><dd id="sp-gain">—</dd>
+      </dl>
+    </div>
+    <div class="box">
+      <form id="form-sp">
+        <label>Amount (OCT)<input id="sp-amount" type="number" step="any" min="0" placeholder="1000"></label>
+        <div class="actions">
+          <button class="btn btn-gold" type="button" id="btn-sp-deposit">Deposit</button>
+          <button class="btn btn-ghost" type="button" id="btn-sp-withdraw">Withdraw</button>
+          <button class="btn btn-ghost" type="button" id="btn-sp-claim">Claim gain to wallet</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</section>
+
+<section id="system" class="panel">
+  <div class="panel-head">
+    <h2>System</h2>
+  </div>
+  <div class="row-stats">
+    <div class="stat"><span class="stat-label">Total collateral</span><span id="y-coll" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Total debt</span><span id="y-debt" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Total collateral ratio</span><span id="y-tcr" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Vaults</span><span id="y-count" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Mint fee now</span><span id="y-mintfee" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Redemption fee now</span><span id="y-redfee" class="stat-value">—</span></div>
+  </div>
+  <div class="box">
+    <h3>Vaults by collateral ratio (riskiest first)</h3>
+    <table class="table" id="trove-table"><thead><tr><th>Owner</th><th>Collateral</th><th>Debt</th><th>Ratio</th><th></th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="box">
+    <h3>Contracts</h3>
+    <dl class="kv mono" id="addr-list"></dl>
+  </div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+  <p><strong>LegacyStack testnet.</strong> Unaudited. Test network only. The code is published under the MIT licence at <a id="repo-link" href="https://github.com/PLSLEND/legacystack-core">github.com/PLSLEND/legacystack-core</a>. Lineage: Liquity V1 (MIT).</p>
+  <p>Test ether for gas: <a href="https://www.alchemy.com/faucets/ethereum-sepolia" rel="noopener">Alchemy Sepolia faucet</a>, <a href="https://sepolia-faucet.pk910.de/" rel="noopener">pk910 PoW faucet</a>. Test wstETH: the faucet button above.</p>
+</footer>
+
+<div id="toast" class="toast hidden"></div>
+<script src="app.js"></script>
+</body>
+</html>

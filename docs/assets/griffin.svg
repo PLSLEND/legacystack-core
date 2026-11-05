@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="LegacyStack griffin">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5B97E0"/>
+      <stop offset="0.5" stop-color="#9FB3CC"/>
+      <stop offset="1" stop-color="#D9AE3F"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2F6DB5"/>
+      <stop offset="1" stop-color="#C9A227"/>
+    </linearGradient>
+  </defs>
+  <circle cx="100" cy="100" r="96" fill="#0B1A33"/>
+  <circle cx="100" cy="100" r="92" fill="none" stroke="url(#ring)" stroke-width="3"/>
+  <g fill="url(#g)">
+    <!-- wing: rises from the shoulder, feathers along the trailing edge -->
+    <path d="M96 92 C100 70 118 52 150 42 C160 39 170 40 176 46 C166 47 160 52 156 60 C164 58 172 60 178 66 C168 66 162 72 158 80 C166 80 172 84 176 90 C166 90 160 96 156 104 C150 114 138 120 124 118 C110 116 100 106 96 92 Z"/>
+    <!-- body: lion chest, back and belly -->
+    <path d="M70 100 C72 90 84 84 100 86 C116 88 132 94 144 100 C150 103 152 112 148 120 C140 132 122 138 104 136 C88 134 76 128 70 118 C68 112 68 106 70 100 Z"/>
+    <!-- front leg and paw -->
+    <path d="M78 122 C72 130 70 142 72 154 L60 158 C58 162 60 165 64 165 L84 165 C88 165 88 161 86 158 L84 156 C84 144 88 132 94 126 Z"/>
+    <!-- hind leg and paw -->
+    <path d="M130 126 C140 128 148 136 150 146 L146 156 L160 158 C164 160 164 164 160 165 L138 165 C134 165 132 162 134 158 L138 152 C136 146 130 140 122 136 Z"/>
+    <!-- tail: from the rump, curling up with a tuft -->
+    <path d="M146 112 C160 112 170 104 172 92 C174 84 170 78 164 76 C170 82 168 92 160 98 C156 102 150 104 146 106 Z"/>
+    <!-- neck -->
+    <path d="M80 92 C76 80 72 68 66 58 L84 50 C88 62 92 74 98 86 Z"/>
+    <!-- eagle head with hooked beak, facing left -->
+    <path d="M58 60 C50 48 56 34 72 30 C84 27 94 32 98 42 C100 48 98 54 92 58 C86 62 76 62 70 60 L60 66 C54 68 50 66 50 62 C50 58 52 56 54 54 Z"/>
+    <!-- beak -->
+    <path d="M54 52 C46 52 40 56 38 62 C40 66 44 70 46 74 C48 70 50 66 52 64 C56 62 58 58 54 52 Z"/>
+    <!-- ear tufts -->
+    <path d="M74 30 C73 24 75 19 80 16 C79 22 81 27 84 30 Z"/>
+    <path d="M84 29 C86 22 91 18 97 17 C94 22 94 27 95 31 Z"/>
+  </g>
+  <!-- cut lines: eye, beak, wing feathers, paw toes -->
+  <g fill="none" stroke="#0B1A33" stroke-width="2" stroke-linecap="round">
+    <circle cx="76" cy="44" r="3.4" fill="#0B1A33" stroke="none"/>
+    <path d="M52 60 C48 62 46 64 44 67"/>
+    <path d="M106 100 C118 90 134 80 150 76"/>
+    <path d="M110 108 C122 100 136 94 152 92"/>
+    <path d="M66 160 L68 165 M74 160 L76 165 M144 160 L146 165 M152 160 L154 165"/>
+  </g>
+</svg>

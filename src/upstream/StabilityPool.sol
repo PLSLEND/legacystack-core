@@ -124,10 +124,9 @@ import "./Dependencies/CheckContract.sol";
  *
  * An LQTY issuance event occurs at every deposit operation, and every liquidation.
  *
- * Each deposit is tagged with the address of the front end through which it was made.
- *
- * All deposits earn a share of the issued LQTY in proportion to the deposit as a share of total deposits. The LQTY earned
- * by a given deposit, is split between the depositor and the front end through which the deposit was made, based on the front end's kickbackRate.
+ * All deposits earn a share of the issued LQTY in proportion to the deposit as a share of total deposits.
+ * (LegacyStack: Liquity's front-end tags and kickback rates are removed; every depositor earns the full share.
+ * "LQTY" here is the emissions token slot, STACK in LegacyStack; the issuance contract is a stub until it exists.)
  *
  * Please see the system Readme for an overview:
  * https://github.com/liquity/dev/blob/main/README.md#lqty-issuance-to-stability-providers
@@ -162,14 +161,8 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
    // --- Data structures ---
 
-    struct FrontEnd {
-        uint kickbackRate;
-        bool registered;
-    }
-
     struct Deposit {
         uint initialValue;
-        address frontEndTag;
     }
 
     struct Snapshots {
@@ -181,10 +174,6 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     mapping (address => Deposit) public deposits;  // depositor address -> Deposit struct
     mapping (address => Snapshots) public depositSnapshots;  // depositor address -> snapshots struct
-
-    mapping (address => FrontEnd) public frontEnds;  // front end address -> FrontEnd struct
-    mapping (address => uint) public frontEndStakes; // front end address -> last recorded total deposits, tagged with that front end
-    mapping (address => Snapshots) public frontEndSnapshots; // front end address -> snapshots struct
 
     // We never allow the SP to go below this amount through withdrawals or liquidations
     uint constant internal MIN_LUSD_IN_SP = 1e18;
@@ -244,17 +233,11 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     event G_Updated(uint _G, uint _scale);
     event ScaleUpdated(uint _currentScale);
 
-    event FrontEndRegistered(address indexed _frontEnd, uint _kickbackRate);
-    event FrontEndTagSet(address indexed _depositor, address indexed _frontEnd);
-
     event DepositSnapshotUpdated(address indexed _depositor, uint _P, uint _S, uint _G);
-    event FrontEndSnapshotUpdated(address indexed _frontEnd, uint _P, uint _G);
     event UserDepositChanged(address indexed _depositor, uint _newDeposit);
-    event FrontEndStakeChanged(address indexed _frontEnd, uint _newFrontEndStake, address _depositor);
 
     event ETHGainWithdrawn(address indexed _depositor, uint _ETH, uint _LUSDLoss);
     event LQTYPaidToDepositor(address indexed _depositor, uint _LQTY);
-    event LQTYPaidToFrontEnd(address indexed _frontEnd, uint _LQTY);
     event EtherSent(address _to, uint _amount);
 
     // --- Contract setters ---
@@ -320,16 +303,12 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     /*  provideToSP():
     *
-    * - Triggers a LQTY issuance, based on time passed since the last issuance. The LQTY issuance is shared between *all* depositors and front ends
-    * - Tags the deposit with the provided front end tag param, if it's a new deposit
+    * - Triggers a LQTY issuance, based on time passed since the last issuance. The LQTY issuance is shared between *all* depositors
     * - Sends depositor's accumulated gains (LQTY, ETH) to depositor
-    * - Sends the tagged front end's accumulated LQTY gains to the tagged front end
-    * - Increases deposit and tagged front end's stake, and takes new snapshots for each.
+    * - Increases deposit and takes new snapshots
     */
-    function provideToSP(uint _amount, address _frontEndTag) external override {
+    function provideToSP(uint _amount) external override {
         successionRegistry.touch(msg.sender);
-        _requireFrontEndIsRegisteredOrZero(_frontEndTag);
-        _requireFrontEndNotRegistered(msg.sender);
         _requireNonZeroAmount(_amount);
 
         uint initialDeposit = deposits[msg.sender].initialValue;
@@ -338,20 +317,12 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
         _triggerLQTYIssuance(communityIssuanceCached);
 
-        if (initialDeposit == 0) {_setFrontEndTag(msg.sender, _frontEndTag);}
         uint depositorETHGain = getDepositorETHGain(msg.sender);
         uint compoundedLUSDDeposit = getCompoundedLUSDDeposit(msg.sender);
         uint LUSDLoss = initialDeposit.sub(compoundedLUSDDeposit); // Needed only for event log
 
         // First pay out any LQTY gains
-        address frontEnd = deposits[msg.sender].frontEndTag;
-        _payOutLQTYGains(communityIssuanceCached, msg.sender, frontEnd);
-
-        // Update front end stake
-        uint compoundedFrontEndStake = getCompoundedFrontEndStake(frontEnd);
-        uint newFrontEndStake = compoundedFrontEndStake.add(_amount);
-        _updateFrontEndStakeAndSnapshots(frontEnd, newFrontEndStake);
-        emit FrontEndStakeChanged(frontEnd, newFrontEndStake, msg.sender);
+        _payOutLQTYGains(communityIssuanceCached, msg.sender);
 
         _sendLUSDtoStabilityPool(msg.sender, _amount);
 
@@ -366,11 +337,9 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     /*  withdrawFromSP():
     *
-    * - Triggers a LQTY issuance, based on time passed since the last issuance. The LQTY issuance is shared between *all* depositors and front ends
-    * - Removes the deposit's front end tag if it is a full withdrawal
+    * - Triggers a LQTY issuance, based on time passed since the last issuance. The LQTY issuance is shared between *all* depositors
     * - Sends all depositor's accumulated gains (LQTY, ETH) to depositor
-    * - Sends the tagged front end's accumulated LQTY gains to the tagged front end
-    * - Decreases deposit and tagged front end's stake, and takes new snapshots for each.
+    * - Decreases deposit and takes new snapshots
     *
     * If _amount > userDeposit, the user withdraws all of their compounded deposit.
     */
@@ -391,14 +360,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         uint LUSDLoss = initialDeposit.sub(compoundedLUSDDeposit); // Needed only for event log
 
         // First pay out any LQTY gains
-        address frontEnd = deposits[msg.sender].frontEndTag;
-        _payOutLQTYGains(communityIssuanceCached, msg.sender, frontEnd);
-        
-        // Update front end stake
-        uint compoundedFrontEndStake = getCompoundedFrontEndStake(frontEnd);
-        uint newFrontEndStake = compoundedFrontEndStake.sub(LUSDtoWithdraw);
-        _updateFrontEndStakeAndSnapshots(frontEnd, newFrontEndStake);
-        emit FrontEndStakeChanged(frontEnd, newFrontEndStake, msg.sender);
+        _payOutLQTYGains(communityIssuanceCached, msg.sender);
 
         // It will check that total does not go below MIN_LUSD_IN_SP
         _sendLUSDToDepositor(msg.sender, LUSDtoWithdraw);
@@ -414,12 +376,11 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     }
 
     /* withdrawETHGainToTrove:
-    * - Triggers a LQTY issuance, based on time passed since the last issuance. The LQTY issuance is shared between *all* depositors and front ends
+    * - Triggers a LQTY issuance, based on time passed since the last issuance. The LQTY issuance is shared between *all* depositors
     * - Sends all depositor's LQTY gain to  depositor
-    * - Sends all tagged front end's LQTY gain to the tagged front end
     * - Transfers the depositor's entire ETH gain from the Stability Pool to the caller's trove
     * - Leaves their compounded deposit in the Stability Pool
-    * - Updates snapshots for deposit and tagged front end stake */
+    * - Updates snapshots for the deposit */
     function withdrawETHGainToTrove(address _upperHint, address _lowerHint) external override {
         successionRegistry.touch(msg.sender);
         uint initialDeposit = deposits[msg.sender].initialValue;
@@ -437,14 +398,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         uint LUSDLoss = initialDeposit.sub(compoundedLUSDDeposit); // Needed only for event log
 
         // First pay out any LQTY gains
-        address frontEnd = deposits[msg.sender].frontEndTag;
-        _payOutLQTYGains(communityIssuanceCached, msg.sender, frontEnd);
-
-        // Update front end stake
-        uint compoundedFrontEndStake = getCompoundedFrontEndStake(frontEnd);
-        uint newFrontEndStake = compoundedFrontEndStake;
-        _updateFrontEndStakeAndSnapshots(frontEnd, newFrontEndStake);
-        emit FrontEndStakeChanged(frontEnd, newFrontEndStake, msg.sender);
+        _payOutLQTYGains(communityIssuanceCached, msg.sender);
 
         _updateDepositAndSnapshots(msg.sender, compoundedLUSDDeposit);
 
@@ -488,11 +442,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     function _settleSuccessionDeposit(address _depositor, uint _withdrawn) internal {
         uint compounded = getCompoundedLUSDDeposit(_depositor);
-        address frontEnd = deposits[_depositor].frontEndTag;
-        _payOutLQTYGains(communityIssuance, _depositor, frontEnd);
-        uint newFrontEndStake = getCompoundedFrontEndStake(frontEnd).sub(_withdrawn);
-        _updateFrontEndStakeAndSnapshots(frontEnd, newFrontEndStake);
-        emit FrontEndStakeChanged(frontEnd, newFrontEndStake, _depositor);
+        _payOutLQTYGains(communityIssuance, _depositor);
         uint newDeposit = compounded.sub(_withdrawn);
         _updateDepositAndSnapshots(_depositor, newDeposit);
         emit UserDepositChanged(_depositor, newDeposit);
@@ -699,7 +649,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         emit StabilityPoolLUSDBalanceUpdated(newTotalLUSDDeposits);
     }
 
-    // --- Reward calculator functions for depositor and front end ---
+    // --- Reward calculator functions for the depositor ---
 
     /* Calculates the ETH gain earned by the deposit since its last snapshots were taken.
     * Given by the formula:  E = d0 * (S - S(0))/P(0)
@@ -745,39 +695,9 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         uint initialDeposit = deposits[_depositor].initialValue;
         if (initialDeposit == 0) {return 0;}
 
-        address frontEndTag = deposits[_depositor].frontEndTag;
-
-        /*
-        * If not tagged with a front end, the depositor gets a 100% cut of what their deposit earned.
-        * Otherwise, their cut of the deposit's earnings is equal to the kickbackRate, set by the front end through
-        * which they made their deposit.
-        */
-        uint kickbackRate = frontEndTag == address(0) ? DECIMAL_PRECISION : frontEnds[frontEndTag].kickbackRate;
-
         Snapshots memory snapshots = depositSnapshots[_depositor];
 
-        uint LQTYGain = kickbackRate.mul(_getLQTYGainFromSnapshots(initialDeposit, snapshots)).div(DECIMAL_PRECISION);
-
-        return LQTYGain;
-    }
-
-    /*
-    * Return the LQTY gain earned by the front end. Given by the formula:  E = D0 * (G - G(0))/P(0)
-    * where G(0) and P(0) are the depositor's snapshots of the sum G and product P, respectively.
-    *
-    * D0 is the last recorded value of the front end's total tagged deposits.
-    */
-    function getFrontEndLQTYGain(address _frontEnd) public view override returns (uint) {
-        uint frontEndStake = frontEndStakes[_frontEnd];
-        if (frontEndStake == 0) { return 0; }
-
-        uint kickbackRate = frontEnds[_frontEnd].kickbackRate;
-        uint frontEndShare = uint(DECIMAL_PRECISION).sub(kickbackRate);
-
-        Snapshots memory snapshots = frontEndSnapshots[_frontEnd];
-
-        uint LQTYGain = frontEndShare.mul(_getLQTYGainFromSnapshots(frontEndStake, snapshots)).div(DECIMAL_PRECISION);
-        return LQTYGain;
+        return _getLQTYGainFromSnapshots(initialDeposit, snapshots);
     }
 
     function _getLQTYGainFromSnapshots(uint initialStake, Snapshots memory snapshots) internal view returns (uint) {
@@ -798,7 +718,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         return LQTYGain;
     }
 
-    // --- Compounded deposit and compounded front end stake ---
+    // --- Compounded deposit ---
 
     /*
     * Return the user's compounded deposit. Given by the formula:  d = d0 * P/P(0)
@@ -814,24 +734,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         return compoundedDeposit;
     }
 
-    /*
-    * Return the front end's compounded stake. Given by the formula:  D = D0 * P/P(0)
-    * where P(0) is the depositor's snapshot of the product P, taken at the last time
-    * when one of the front end's tagged deposits updated their deposit.
-    *
-    * The front end's compounded stake is equal to the sum of its depositors' compounded deposits.
-    */
-    function getCompoundedFrontEndStake(address _frontEnd) public view override returns (uint) {
-        uint frontEndStake = frontEndStakes[_frontEnd];
-        if (frontEndStake == 0) { return 0; }
-
-        Snapshots memory snapshots = frontEndSnapshots[_frontEnd];
-
-        uint compoundedFrontEndStake = _getCompoundedStakeFromSnapshots(frontEndStake, snapshots);
-        return compoundedFrontEndStake;
-    }
-
-    // Internal function, used to calculcate compounded deposits and compounded front end stakes.
+    // Internal function, used to calculate compounded deposits.
     function _getCompoundedStakeFromSnapshots(
         uint initialStake,
         Snapshots memory snapshots
@@ -904,33 +807,12 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         _decreaseLUSD(LUSDWithdrawal);
     }
 
-    // --- External Front End functions ---
-
-    // Front end makes a one-time selection of kickback rate upon registering
-    function registerFrontEnd(uint _kickbackRate) external override {
-        _requireFrontEndNotRegistered(msg.sender);
-        _requireUserHasNoDeposit(msg.sender);
-        _requireValidKickbackRate(_kickbackRate);
-
-        frontEnds[msg.sender].kickbackRate = _kickbackRate;
-        frontEnds[msg.sender].registered = true;
-
-        emit FrontEndRegistered(msg.sender, _kickbackRate);
-    }
-
     // --- Stability Pool Deposit Functionality ---
-
-    function _setFrontEndTag(address _depositor, address _frontEndTag) internal {
-        deposits[_depositor].frontEndTag = _frontEndTag;
-        emit FrontEndTagSet(_depositor, _frontEndTag);
-    }
-
 
     function _updateDepositAndSnapshots(address _depositor, uint _newValue) internal {
         deposits[_depositor].initialValue = _newValue;
 
         if (_newValue == 0) {
-            delete deposits[_depositor].frontEndTag;
             delete depositSnapshots[_depositor];
             emit DepositSnapshotUpdated(_depositor, 0, 0, 0);
             return;
@@ -951,37 +833,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         emit DepositSnapshotUpdated(_depositor, currentP, currentS, currentG);
     }
 
-    function _updateFrontEndStakeAndSnapshots(address _frontEnd, uint _newValue) internal {
-        frontEndStakes[_frontEnd] = _newValue;
-
-        if (_newValue == 0) {
-            delete frontEndSnapshots[_frontEnd];
-            emit FrontEndSnapshotUpdated(_frontEnd, 0, 0);
-            return;
-        }
-
-        uint currentScaleCached = currentScale;
-        uint currentP = P;
-
-        // Get G for the current scale
-        uint currentG = scaleToG[currentScaleCached];
-
-        // Record new snapshots of the latest running product P and sum G for the front end
-        frontEndSnapshots[_frontEnd].P = currentP;
-        frontEndSnapshots[_frontEnd].G = currentG;
-        frontEndSnapshots[_frontEnd].scale = currentScaleCached;
-
-        emit FrontEndSnapshotUpdated(_frontEnd, currentP, currentG);
-    }
-
-    function _payOutLQTYGains(ICommunityIssuance _communityIssuance, address _depositor, address _frontEnd) internal {
-        // Pay out front end's LQTY gain
-        if (_frontEnd != address(0)) {
-            uint frontEndLQTYGain = getFrontEndLQTYGain(_frontEnd);
-            _communityIssuance.sendLQTY(_frontEnd, frontEndLQTYGain);
-            emit LQTYPaidToFrontEnd(_frontEnd, frontEndLQTYGain);
-        }
-
+    function _payOutLQTYGains(ICommunityIssuance _communityIssuance, address _depositor) internal {
         // Pay out depositor's LQTY gain
         uint depositorLQTYGain = getDepositorLQTYGain(_depositor);
         _communityIssuance.sendLQTY(_depositor, depositorLQTYGain);
@@ -1009,11 +861,6 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
         require(_initialDeposit > 0, 'StabilityPool: User must have a non-zero deposit');
     }
 
-     function _requireUserHasNoDeposit(address _address) internal view {
-        uint initialDeposit = deposits[_address].initialValue;
-        require(initialDeposit == 0, 'StabilityPool: User must have no deposit');
-    }
-
     function _requireNonZeroAmount(uint _amount) internal pure {
         require(_amount > 0, 'StabilityPool: Amount must be non-zero');
     }
@@ -1025,19 +872,6 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     function _requireUserHasETHGain(address _depositor) internal view {
         uint ETHGain = getDepositorETHGain(_depositor);
         require(ETHGain > 0, "StabilityPool: caller must have non-zero ETH Gain");
-    }
-
-    function _requireFrontEndNotRegistered(address _address) internal view {
-        require(!frontEnds[_address].registered, "StabilityPool: must not already be a registered front end");
-    }
-
-     function _requireFrontEndIsRegisteredOrZero(address _address) internal view {
-        require(frontEnds[_address].registered || _address == address(0),
-            "StabilityPool: Tag must be a registered front end, or the zero address");
-    }
-
-    function  _requireValidKickbackRate(uint _kickbackRate) internal pure {
-        require (_kickbackRate <= DECIMAL_PRECISION, "StabilityPool: Kickback rate must be in range [0,1]");
     }
 
     // LegacyStack: called by ActivePool after transferring collateral tokens here

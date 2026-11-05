@@ -70,7 +70,7 @@ contract SuccessionTest is LegacyStackBase {
         (, uint coll,,) = ITM(tm).getEntireDebtAndColl(alice);
         assertEq(coll, 11 ether);
         vm.warp(block.timestamp + 100 days);
-        vm.prank(alice); ISP(sp).provideToSP(1000e18, address(0)); // Stability Pool action by the owner: resets
+        vm.prank(alice); ISP(sp).provideToSP(1000e18); // Stability Pool action by the owner: resets
         assertEq(IRegistry(registry).lastProof(alice), block.timestamp);
     }
 
@@ -174,8 +174,8 @@ contract SuccessionTest is LegacyStackBase {
         _open(alice, 10 ether, 5000e18);
         _plan(alice);
         // alice parks 3,000 OCT in the Stability Pool; bob adds 20,000 to the pool
-        vm.prank(alice); ISP(sp).provideToSP(3000e18, address(0));
-        vm.prank(bob); ISP(sp).provideToSP(20000e18, address(0));
+        vm.prank(alice); ISP(sp).provideToSP(3000e18);
+        vm.prank(bob); ISP(sp).provideToSP(20000e18);
         uint spBefore = ISP(sp).getTotalLUSDDeposits();
 
         vm.warp(block.timestamp + PROOF + WINDOW);
@@ -221,7 +221,7 @@ contract SuccessionTest is LegacyStackBase {
         assertGt(ITM(tm).getCurrentICR(alice, _price()), icrBefore);
         assertEq(_state(alice), 3);
         // liquidity arrives: the next call finishes the job
-        vm.prank(bob); ISP(sp).provideToSP(10000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(10000e18);
         vm.prank(keeper); IRegistry(registry).execute(alice);
         assertEq(ITM(tm).getTroveStatus(alice), 5);
         assertEq(_state(alice), 4);
@@ -233,7 +233,7 @@ contract SuccessionTest is LegacyStackBase {
         _open(bob, 100 ether, 50000e18);
         _open(alice, 10 ether, 5000e18);
         _plan(alice);
-        vm.prank(alice); ISP(sp).provideToSP(1000e18, address(0));
+        vm.prank(alice); ISP(sp).provideToSP(1000e18);
         _takeFromBuffer(bob, _inventory());
         vm.warp(block.timestamp + PROOF + WINDOW);
         vm.prank(keeper); IRegistry(registry).execute(alice);
@@ -255,7 +255,7 @@ contract SuccessionTest is LegacyStackBase {
         address[] memory a = new address[](2); uint16[] memory b = new uint16[](2);
         a[0] = tm; b[0] = 5000; a[1] = heir2; b[1] = 5000;
         vm.prank(alice); IRegistry(registry).setPlan(a, b, fallbackHeir);
-        vm.prank(alice); ISP(sp).provideToSP(2000e18, address(0));
+        vm.prank(alice); ISP(sp).provideToSP(2000e18);
         vm.prank(bob); IERC20L(oct).transfer(buffer, 6000e18);
         vm.warp(block.timestamp + PROOF + WINDOW);
         vm.prank(keeper); IRegistry(registry).execute(alice);
@@ -270,7 +270,7 @@ contract SuccessionTest is LegacyStackBase {
         // force an OCT push failure with OCT left in the estate: alice has no vault, only a pool deposit
         _open(bob, 100 ether, 50000e18);
         vm.prank(bob); IERC20L(oct).transfer(alice, 2000e18);
-        vm.prank(alice); ISP(sp).provideToSP(2000e18, address(0));
+        vm.prank(alice); ISP(sp).provideToSP(2000e18);
         address[] memory a = new address[](1); uint16[] memory b = new uint16[](1);
         a[0] = tm; b[0] = 10000;
         vm.prank(alice); IRegistry(registry).setPlan(a, b, sp); // fallback is also a protocol address
@@ -301,7 +301,7 @@ contract SuccessionTest is LegacyStackBase {
         vm.prank(keeper); vm.expectRevert(bytes("BorrowerOps: Succession waits for a healthy oracle"));
         IRegistry(registry).execute(alice);
         IPriceT(pf).setReduceOnly(false);
-        vm.prank(bob); ISP(sp).provideToSP(10000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(10000e18);
         vm.prank(keeper); IRegistry(registry).execute(alice);
         assertEq(ITM(tm).getTroveStatus(alice), 5);
     }

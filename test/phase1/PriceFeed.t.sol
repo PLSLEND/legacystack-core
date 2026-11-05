@@ -151,7 +151,7 @@ contract PriceFeedTest is LegacyStackBase {
         _wireRealFeed();
         _open(bob, 50 ether, 20000e18);
         _open(alice, 10 ether, 5000e18);
-        vm.prank(bob); ISP(sp).provideToSP(10000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(10000e18);
         vm.prank(carol); IBuffer(buffer).fill(5 ether);
         // freeze the oracle
         vm.warp(block.timestamp + 5 hours);
@@ -183,7 +183,7 @@ contract PriceFeedTest is LegacyStackBase {
     function test_liquidationAtLastGoodPriceWhileDegraded() public {
         _wireRealFeed();
         _open(bob, 50 ether, 20000e18);
-        vm.prank(bob); ISP(sp).provideToSP(15000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(15000e18);
         _open(alice, 3 ether, 5000e18); // 7200 / 5225 = 138%
         // a fresh round at 1500: alice 5400/5225 = 103% -> liquidatable
         IAgg(agg).setPrice(1500e8); IAgg(agg).setPrevPrice(1510e8);

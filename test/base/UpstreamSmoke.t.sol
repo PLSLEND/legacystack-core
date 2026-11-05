@@ -27,7 +27,7 @@ contract UpstreamSmokeTest is LegacyStackBase {
     function test_liquidationViaStabilityPool() public {
         vm.prank(bob);   IBO(bo).openTrove(1e18, 20000e18, address(0), address(0), 50 ether);
         vm.prank(alice); IBO(bo).openTrove(1e18, 4000e18, address(0), address(0), 3 ether); // ICR 6000/4220 = 142%
-        vm.prank(bob);   ISP(sp).provideToSP(15000e18, address(0));
+        vm.prank(bob);   ISP(sp).provideToSP(15000e18);
         IPriceT(pf).setPrice(1500e18); // alice ICR = 4500/4225 = 106.5% < 110%
         uint icr = ITM(tm).getCurrentICR(alice, 1500e18);
         assertLt(icr, 1.1e18);

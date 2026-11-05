@@ -41,7 +41,7 @@ interface IBO {
 }
 interface ISP {
     function setAddresses(address,address,address,address,address,address,address,address,address) external;
-    function provideToSP(uint,address) external;
+    function provideToSP(uint) external;
     function withdrawFromSP(uint) external;
     function withdrawETHGainToTrove(address,address) external;
     function getTotalLUSDDeposits() external view returns (uint);

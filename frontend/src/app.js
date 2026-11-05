@@ -419,7 +419,7 @@ async function boot() {
   $('form-buy').addEventListener('submit', buyInventory);
   $('buy-amount').addEventListener('input', () => buyPreview().catch(() => {}));
   $('form-fill').addEventListener('submit', fillPot);
-  $('btn-sp-deposit').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Deposit to the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'provideToSP', [a, zeroAddress])); });
+  $('btn-sp-deposit').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Deposit to the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'provideToSP', [a])); });
   $('btn-sp-withdraw').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Withdraw from the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [a])); });
   $('btn-sp-claim').addEventListener('click', () => send('Claim pool gain', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [0n])));
 

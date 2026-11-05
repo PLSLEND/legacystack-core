@@ -29,7 +29,7 @@ export const borrowerOperationsAbi = parseAbi([
 ]);
 
 export const stabilityPoolAbi = parseAbi([
-  'function provideToSP(uint256, address)',
+  'function provideToSP(uint256)',
   'function withdrawFromSP(uint256)',
   'function withdrawETHGainToTrove(address, address)',
   'function getCompoundedLUSDDeposit(address) view returns (uint256)',

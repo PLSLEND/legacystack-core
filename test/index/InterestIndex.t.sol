@@ -79,7 +79,7 @@ contract InterestIndexTest is LegacyStackBase {
 
     function test_stabilityPoolOffsetAfterInterest() public {
         _open(bob, 50 ether, 20000e18);
-        vm.prank(bob); ISP(sp).provideToSP(15000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(15000e18);
         _open(alice, 3 ether, 4000e18);
         vm.warp(block.timestamp + 180 days);
         IPriceT(pf).setPrice(1500e18);
@@ -103,7 +103,7 @@ contract InterestIndexTest is LegacyStackBase {
 
     function testFuzz_randomOpsKeepSupplyCoveringDebt(uint seed) public {
         _open(bob, 200 ether, 50000e18);
-        vm.prank(bob); ISP(sp).provideToSP(20000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(20000e18);
         address[3] memory users = [alice, carol, dave];
         for (uint i = 0; i < 12; i++) {
             uint r = uint(keccak256(abi.encode(seed, i)));
@@ -140,7 +140,7 @@ contract InterestIndexTest is LegacyStackBase {
 contract CollateralFlowsTest is InterestIndexTest {
     function test_stabilityPoolGainsFlowAsTokens() public {
         _open(bob, 50 ether, 20000e18);
-        vm.prank(bob); ISP(sp).provideToSP(15000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(15000e18);
         _open(alice, 3 ether, 4000e18);
         IPriceT(pf).setPrice(1500e18);
         vm.prank(carol); ITM(tm).liquidate(alice);
@@ -155,7 +155,7 @@ contract CollateralFlowsTest is InterestIndexTest {
 
     function test_withdrawGainToTroveAndCollSurplusClaim() public {
         _open(bob, 50 ether, 20000e18);
-        vm.prank(bob); ISP(sp).provideToSP(15000e18, address(0));
+        vm.prank(bob); ISP(sp).provideToSP(15000e18);
         _open(alice, 3 ether, 4000e18);
         IPriceT(pf).setPrice(1500e18);
         vm.prank(carol); ITM(tm).liquidate(alice);

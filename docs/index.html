@@ -6,12 +6,11 @@
 <title>LegacyStack · Testnet</title>
 <meta name="description" content="LegacyStack: a fixed-rate credit line against staked ether, with succession built into the vault. Test deployment of unaudited code.">
 <meta name="robots" content="noindex, nofollow">
-<meta name="theme-color" content="#060C22">
+<meta name="theme-color" content="#020621">
 <link rel="icon" href="assets/lion.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<div class="columns" aria-hidden="true"><img class="col-left" src="assets/column.svg" alt=""><img class="col-right" src="assets/column.svg" alt=""></div>
 <div class="notice-bar">Test deployment on the Sepolia network. Unaudited code. Nothing here has value and nothing here is a promise about a future deployment.</div>
 
 <header class="site-header">
@@ -38,17 +37,21 @@
 
 <section class="hero">
   <div class="hero-stage">
-    <img src="assets/lion.svg" alt="The LegacyStack winged lion" class="hero-lion">
-    <div class="hero-floor"></div>
+    <picture>
+      <source media="(max-width: 720px)" srcset="assets/hero-tall.webp">
+      <img src="assets/hero-wide.webp" alt="The LegacyStack winged lion on a lit floor between two columns" class="hero-art" width="1900" height="800" fetchpriority="high">
+    </picture>
   </div>
-  <div class="wordmark">LegacyStack</div>
-  <div class="tagline">Digital Wealth, Credit &amp; Inheritance</div>
-  <div class="rule"><span></span><i></i><span></span></div>
-  <h1>Grow. Borrow. Pass&nbsp;it&nbsp;on.</h1>
-  <p class="lede">A fixed-rate credit line against staked ether, written once in code and never changed. You keep the asset that grows, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
-  <div class="hero-actions">
-    <a class="btn btn-gold" href="#app">Open the testnet vault</a>
-    <a class="btn btn-ghost" href="#strategy">Read the strategy</a>
+  <div class="hero-copy">
+    <div class="wordmark">LegacyStack</div>
+    <div class="tagline">Digital Wealth, Credit &amp; Inheritance</div>
+    <div class="rule"><span></span><i></i><span></span></div>
+    <h1>Grow. Borrow. Pass&nbsp;it&nbsp;on.</h1>
+    <p class="lede">A fixed-rate credit line against staked ether, written once in code and never changed. You keep the asset that grows, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
+    <div class="hero-actions">
+      <a class="btn btn-gold" href="#app">Open the testnet vault</a>
+      <a class="btn btn-ghost" href="#strategy">Read the strategy</a>
+    </div>
   </div>
 </section>
 

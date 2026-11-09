@@ -30,6 +30,11 @@ contract PriceFeedTestnet is IPriceFeed {
         return _reduceOnly;
     }
 
+    // the real PriceFeed's read-only view, used by the frontend and the Keeper desk
+    function peek() external view returns (uint256 price, bool healthy) {
+        return (_price, !_reduceOnly);
+    }
+
     function setPrice(uint256 price) external returns (bool) {
         _price = price;
         return true;

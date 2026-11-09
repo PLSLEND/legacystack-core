@@ -5,14 +5,15 @@ import * as A from './abis.js';
 // ---------- configuration ----------
 const DEPLOYMENT_URL = 'deployment.json';
 const CHAINS = {
-  11155111: { chain: sepolia, rpc: 'https://ethereum-sepolia-rpc.publicnode.com', explorer: 'https://sepolia.etherscan.io', name: 'Sepolia' },
-  31337: { chain: defineChain({ id: 31337, name: 'Local', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: ['http://127.0.0.1:8545'] } } }), rpc: 'http://127.0.0.1:8545', explorer: '', name: 'local chain' },
+  11155111: { chain: sepolia, rpc: 'https://ethereum-sepolia-rpc.publicnode.com', explorer: 'https://sepolia.etherscan.io', name: 'Sepolia', uniswap: 'sepolia' },
+  31337: { chain: defineChain({ id: 31337, name: 'Local', nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 }, rpcUrls: { default: { http: ['http://127.0.0.1:8545'] } } }), rpc: 'http://127.0.0.1:8545', explorer: '', name: 'local chain', uniswap: '' },
 };
 const WAD = 10n ** 18n;
 const MCR = 11n * 10n ** 17n;
 const GAS_COMP = 200n * WAD;
 const MIN_NET_DEBT = 1800n * WAD;
 const MAX_FEE = 5n * 10n ** 16n; // the protocol's own cap on the mint fee (5%)
+const Q96 = 2n ** 96n;
 
 let D = null;           // deployment addresses
 let NET = null;         // chain config
@@ -22,6 +23,10 @@ let me = null;          // connected address
 let price = 0n; let healthy = true;
 let refreshTimer = null;
 let heirRowCount = 0;
+let allTroves = [];     // the sorted list, riskiest first, for "debt in front of you"
+let desk = null;        // last Keeper desk read
+let hasVault = false; let hasPlan = false;
+let isZero = (a) => !a || a === zeroAddress;
 
 // ---------- helpers ----------
 const $ = (id) => document.getElementById(id);
@@ -43,6 +48,7 @@ const addr = (s) => getAddress(s.trim().toLowerCase());          // any casing i
 const looksLikeAddress = (s) => isAddress((s || '').trim(), { strict: false });
 const icrOf = (coll, debt) => debt === 0n ? 0n : (coll * price) / debt;
 const liqPrice = (coll, debt) => coll === 0n ? 0n : (debt * MCR) / coll;
+const usd = (wad, digits = 0) => `$${fmt(wad, digits)}`;
 
 function toast(msg, kind = '') {
   const t = $('toast'); t.textContent = msg; t.className = `toast ${kind}`;
@@ -57,7 +63,7 @@ function explain(err) {
   }
   if (!reason) reason = (err && err.message) ? err.message.split('\n')[0] : String(err);
   // the contracts speak in plain sentences; strip their prefixes
-  return reason.replace(/^(BorrowerOps|TroveManager|TM|StabilityPool|RedemptionBuffer|SuccessionRegistry|LUSD|PriceFeed): /, '');
+  return reason.replace(/^(BorrowerOps|TroveManager|TM|StabilityPool|RedemptionBuffer|SuccessionRegistry|KeeperDesk|LUSD|PriceFeed): /, '');
 }
 async function send(label, fn) {
   if (!wallet || !me) { toast('Connect a wallet first.', 'bad'); return null; }
@@ -128,36 +134,50 @@ async function networkBadge() {
 async function refresh() {
   try {
     [price, healthy] = await read(D.priceFeed, A.priceFeedAbi, 'peek');
-    $('s-price').textContent = `$${fmt(price, 0)}`;
+    $('s-price').textContent = usd(price);
     const reduceOnly = await read(D.priceFeed, A.priceFeedAbi, 'isReduceOnly');
     $('s-oracle').textContent = healthy && !reduceOnly ? 'healthy' : 'degraded · reduce-only';
     $('s-oracle').style.color = healthy && !reduceOnly ? 'var(--ok)' : 'var(--warn)';
-    await Promise.all([refreshSystem(), refreshBuffer(), refreshPoolAndVault(), refreshSuccession(), networkBadge()]);
+    await refreshSystem();
+    await Promise.all([refreshBuffer(), refreshPoolAndVault(), refreshSuccession(), refreshDesk(), refreshMarket(), networkBadge()]);
+    await refreshFlow();
   } catch (e) { console.error(e); toast(`Could not read the chain: ${explain(e)}`, 'bad'); }
 }
 
 async function refreshSystem() {
-  const [coll, debt, count, mintFee, redFee] = await Promise.all([
+  const [coll, debt, count, mintFee, redFee, index] = await Promise.all([
     read(D.troveManager, A.troveManagerAbi, 'getEntireSystemColl'),
     read(D.troveManager, A.troveManagerAbi, 'getEntireSystemDebt'),
     read(D.troveManager, A.troveManagerAbi, 'getTroveOwnersCount'),
     read(D.troveManager, A.troveManagerAbi, 'getBorrowingRateWithDecay'),
     read(D.troveManager, A.troveManagerAbi, 'getRedemptionRateWithDecay'),
+    read(D.troveManager, A.troveManagerAbi, 'currentRateIndex'),
   ]);
-  $('y-coll').textContent = fmt(coll, 2, 'wstETH');
+  $('y-coll').textContent = `${fmt(coll, 2, 'wstETH')} (${usd((coll * price) / WAD)})`;
   $('y-debt').textContent = fmt(debt, 0, 'OCT');
   $('y-tcr').textContent = pct(icrOf(coll, debt));
   $('y-count').textContent = count.toString();
   $('y-mintfee').textContent = pct(mintFee);
   $('y-redfee').textContent = pct(redFee);
-  // riskiest vaults
-  const rows = await read(D.multiTroveGetter, A.multiTroveGetterAbi, 'getMultipleSortedTroves', [-1n, 12n]);
+  $('y-index').textContent = `${Number(formatUnits(index, 18)).toFixed(6)} (1 OCT borrowed at launch owes this much now)`;
+  // Chainlink leg of the price
+  try {
+    const [, answer] = await read(D.ethUsdAggregator, A.aggregatorAbi, 'latestRoundData');
+    const dec = await read(D.ethUsdAggregator, A.aggregatorAbi, 'decimals');
+    $('y-eth').textContent = `$${Number(formatUnits(answer, dec)).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+  } catch { $('y-eth').textContent = '—'; }
+  // the whole sorted list (riskiest first); the testnet book is small, a production page would page it
+  const n = Number(count);
+  allTroves = n ? await read(D.multiTroveGetter, A.multiTroveGetterAbi, 'getMultipleSortedTroves', [-1n, BigInt(Math.min(n, 200))]) : [];
+  const risky = allTroves.filter((r) => icrOf(r.coll, r.debt) < 12n * 10n ** 17n).length;
+  $('y-risky').textContent = String(risky);
+  $('y-lowest').textContent = allTroves.length ? pct(icrOf(allTroves[0].coll, allTroves[0].debt)) : '—';
   const tb = $('trove-table').querySelector('tbody'); tb.innerHTML = '';
-  for (const r of rows) {
+  for (const r of allTroves.slice(0, 12)) {
     const icr = icrOf(r.coll, r.debt);
-    const risky = icr < MCR;
+    const liquidatable = icr < MCR;
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${short(r.owner)}</td><td>${fmt(r.coll, 3)}</td><td>${fmt(r.debt, 0)}</td><td class="${risky ? 'risk' : ''}">${pct(icr)}</td><td>${risky ? `<button class="btn btn-small" data-liq="${r.owner}">Liquidate</button>` : ''}</td>`;
+    tr.innerHTML = `<td>${short(r.owner)}</td><td>${fmt(r.coll, 3)}</td><td>${fmt(r.debt, 0)}</td><td class="${liquidatable ? 'risk' : ''}">${pct(icr)}</td><td>${liquidatable ? `<button class="btn btn-small" data-liq="${r.owner}">Liquidate</button>` : ''}</td>`;
     tb.appendChild(tr);
   }
   tb.querySelectorAll('button[data-liq]').forEach((b) => b.addEventListener('click', () => send('Liquidate', () => write(D.troveManager, A.troveManagerAbi, 'liquidate', [b.dataset.liq]))));
@@ -171,18 +191,26 @@ async function refreshBuffer() {
     read(D.troveManager, A.troveManagerAbi, 'getEntireSystemDebt'),
   ]);
   const potUsd = (pot * price) / WAD;
-  $('b-pot').textContent = `${fmt(pot, 3)} wstETH ($${fmt(potUsd, 0)})`;
-  $('b-target').textContent = `$${fmt(target, 0)} (15% of ${fmt(circ, 0)} OCT)`;
+  const filled = target > 0n ? (potUsd * 100n) / target : 0n;
+  $('b-pot').textContent = `${fmt(pot, 3)} wstETH (${usd(potUsd)}, ${filled}% of target)`;
+  $('b-target').textContent = `${usd(target)} (15% of ${fmt(circ, 0)} OCT)`;
   $('b-inv').textContent = `${fmt(inv, 2)} OCT`;
-  $('b-ceiling').textContent = `$${fmt(ceiling, 0)} · used ${fmt(debt, 0)}`;
+  $('b-ceiling').textContent = `${usd(ceiling)} · used ${fmt(debt, 0)}`;
   $('rd-preview').textContent = `The reserve can serve ${fmt(cap, 0)} OCT right now; anything above that is redeemed from the riskiest vaults.`;
 }
 
 async function refreshPoolAndVault() {
-  const total = await read(D.stabilityPool, A.stabilityPoolAbi, 'getTotalLUSDDeposits');
+  const [total, supply, spColl] = await Promise.all([
+    read(D.stabilityPool, A.stabilityPoolAbi, 'getTotalLUSDDeposits'),
+    read(D.oct, A.erc20Abi, 'totalSupply'),
+    read(D.stabilityPool, A.stabilityPoolAbi, 'getETH'),
+  ]);
   $('sp-total').textContent = fmt(total, 0, 'OCT');
+  $('sp-share').textContent = supply > 0n ? pct((total * WAD) / supply) : '—';
+  $('sp-coll').textContent = fmt(spColl, 4, 'wstETH');
   if (!me) return;
-  const [wst, oct, status, [debt, coll], dep, gain, surplus, allowance] = await Promise.all([
+  const [eth, wst, oct, status, [debt, coll], dep, gain, surplus, allowance] = await Promise.all([
+    pub.getBalance({ address: me }),
     read(D.wstETH, A.erc20Abi, 'balanceOf', [me]), read(D.oct, A.erc20Abi, 'balanceOf', [me]),
     read(D.troveManager, A.troveManagerAbi, 'getTroveStatus', [me]),
     read(D.troveManager, A.troveManagerAbi, 'getEntireDebtAndColl', [me]),
@@ -191,23 +219,29 @@ async function refreshPoolAndVault() {
     read(D.collSurplusPool, A.collSurplusPoolAbi, 'getCollateral', [me]),
     read(D.wstETH, A.erc20Abi, 'allowance', [me, D.borrowerOperations]),
   ]);
+  $('s-eth').textContent = fmt(eth, 4);
   $('s-wst').textContent = fmt(wst, 3);
   $('s-oct').textContent = fmt(oct, 2);
   $('sp-mine').textContent = fmt(dep, 2, 'OCT');
+  $('sp-mine-share').textContent = total > 0n ? pct((dep * WAD) / total) : '—';
   $('sp-gain').textContent = fmt(gain, 4, 'wstETH');
   $('btn-approve').classList.toggle('hidden', allowance > 10n ** 30n);
   const names = ['none', 'open', 'closed by you', 'liquidated', 'redeemed', 'closed by succession'];
   $('v-status').textContent = names[Number(status)] || '—';
-  const active = Number(status) === 1;
-  $('v-coll').textContent = active ? fmt(coll, 4, 'wstETH') : '—';
-  $('v-debt').textContent = active ? fmt(debt, 2, 'OCT') : '—';
-  $('v-icr').textContent = active ? pct(icrOf(coll, debt)) : '—';
-  $('v-liq').textContent = active ? `$${fmt(liqPrice(coll, debt), 0)} per wstETH` : '—';
-  $('btn-close').disabled = !active;
+  hasVault = Number(status) === 1;
+  $('v-coll').textContent = hasVault ? fmt(coll, 4, 'wstETH') : '—';
+  $('v-debt').textContent = hasVault ? fmt(debt, 2, 'OCT') : '—';
+  $('v-icr').textContent = hasVault ? pct(icrOf(coll, debt)) : '—';
+  $('v-liq').textContent = hasVault ? `${usd(liqPrice(coll, debt))} per wstETH` : '—';
+  if (hasVault) {
+    // redemptions take the reserve first, then vaults from the lowest ratio up: everything below you is "in front"
+    const mine = icrOf(coll, debt);
+    const inFront = allTroves.filter((r) => r.owner.toLowerCase() !== me.toLowerCase() && icrOf(r.coll, r.debt) < mine).reduce((a, r) => a + r.debt, 0n);
+    const cap = await read(D.redemptionBuffer, A.bufferAbi, 'redeemCapacity', [price]);
+    $('v-front').textContent = `${fmt(cap + inFront, 0)} OCT · reserve ${fmt(cap, 0)}, riskier vaults ${fmt(inFront, 0)}`;
+  } else { $('v-front').textContent = '—'; }
+  $('btn-close').disabled = !hasVault;
   $('btn-claim-surplus').classList.toggle('hidden', surplus === 0n);
-  $('form-open').classList.toggle('hidden', active);
-  $('form-adjust').classList.toggle('hidden', !active);
-  $('form-title').textContent = active ? 'Adjust your vault' : 'Open a vault';
 }
 
 async function refreshSuccession() {
@@ -220,6 +254,7 @@ async function refreshSuccession() {
     read(D.successionRegistry, A.registryAbi, 'escrowOf', [me, D.wstETH]),
     read(D.successionRegistry, A.registryAbi, 'escrowOf', [me, D.oct]),
   ]);
+  hasPlan = state !== 0 && state !== 4;
   const states = ['no plan', 'active', 'due · owner-return window', 'executable by anyone', 'executed'];
   $('p-state').textContent = states[state] || '—';
   $('p-last').textContent = state === 0 ? '—' : date(last);
@@ -239,7 +274,100 @@ async function refreshSuccession() {
   if (accounts.length && heirRowCount === 0) { accounts.forEach((a, i) => addHeirRow(a, (bps[i] / 100).toString())); if (fallback !== zeroAddress) $('in-fallback').value = fallback; }
 }
 
+// the stepped flow: no vault -> steps 1-2; vault without a plan -> step 3 (the heir alert); both -> adjust + invitations
+async function refreshFlow() {
+  const connected = !!me;
+  $('form-open').classList.toggle('hidden', connected && hasVault);
+  $('form-adjust').classList.toggle('hidden', !(connected && hasVault));
+  $('steps').classList.toggle('hidden', connected && hasVault && hasPlan);
+  $('form-title').textContent = connected && hasVault ? 'Adjust your vault' : 'Open a vault';
+  const stepNow = !(connected && hasVault) ? currentStep : 3;
+  document.querySelectorAll('.step').forEach((el) => {
+    const n = Number(el.dataset.step);
+    el.classList.toggle('is-current', n === stepNow);
+    el.classList.toggle('is-done', n < stepNow || (n === 3 && hasPlan));
+  });
+  const needsPlan = connected && hasVault && !hasPlan;
+  $('plan-alert').classList.toggle('hidden', !needsPlan);
+  $('btn-skip-plan').classList.toggle('hidden', !needsPlan);
+  $('invite').classList.toggle('hidden', !(connected && hasVault && (hasPlan || planSkipped)));
+}
+let currentStep = 1; let planSkipped = false;
+function showStep(n) {
+  currentStep = n;
+  $('pane-1').classList.toggle('hidden', n !== 1);
+  $('pane-2').classList.toggle('hidden', n !== 2);
+  document.querySelectorAll('.step').forEach((el) => { const k = Number(el.dataset.step); el.classList.toggle('is-current', k === n); el.classList.toggle('is-done', k < n); });
+}
+
+// ---------- Keeper desk ----------
+async function refreshDesk() {
+  if (isZero(D.keeperDesk)) { $('k-liq').textContent = 'desk not deployed'; return; }
+  try {
+    desk = await read(D.keeperDesk, A.keeperDeskAbi, 'pending', [60n]);
+    $('k-liq').textContent = desk.liquidatable.length ? `${desk.liquidatable.length} (${desk.liquidatable.map(short).join(', ')})` : 'none';
+    $('k-exe').textContent = desk.executable.length ? `${desk.executable.length} (${desk.executable.map(short).join(', ')})` : 'none';
+    const any = desk.octReward > 0n || desk.collReward > 0n;
+    $('k-reward').textContent = any ? `≈ ${fmt(desk.octReward, 0)} OCT + ${fmt(desk.collReward, 4)} wstETH` : 'interest accrual and reserve release only (no reward)';
+    $('k-reward').style.color = any ? 'var(--gold-2)' : '';
+  } catch (e) { console.error(e); $('k-liq').textContent = '—'; }
+}
+async function runDesk(ev) {
+  ev.preventDefault();
+  if (isZero(D.keeperDesk)) { toast('The desk is not deployed on this chain.', 'bad'); return; }
+  const extra = $('ex-addr').value.trim();
+  if (extra && !looksLikeAddress(extra)) { toast('That is not an address.', 'bad'); return; }
+  const liq = desk ? [...desk.liquidatable] : [];
+  const exe = desk ? [...desk.executable] : [];
+  if (extra && !exe.map((a) => a.toLowerCase()).includes(extra.toLowerCase())) exe.push(addr(extra));
+  await send('Run the desk', () => write(D.keeperDesk, A.keeperDeskAbi, 'run', [liq, exe]));
+}
+async function executePreview() {
+  const a = $('ex-addr').value.trim(); const p = $('ex-preview'); p.className = 'preview';
+  if (!looksLikeAddress(a)) { p.textContent = 'Enter a wallet to read its state.'; return; }
+  const [state, dueAt, execAt] = await read(D.successionRegistry, A.registryAbi, 'successionState', [addr(a)]);
+  const states = ['no plan', 'active', 'due · owner-return window', 'executable by anyone', 'executed'];
+  p.textContent = `${states[state]}${state ? ` · due ${date(dueAt)} · executable ${date(execAt)}` : ''}`;
+  if (state === 3) p.className = 'preview warn';
+}
+
+// ---------- market ----------
+async function refreshMarket() {
+  const sec = $('market');
+  if (isZero(D.octUsdePool)) { sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  try {
+    const [[sqrtP], t0, octBal, usdeBal] = await Promise.all([
+      read(D.octUsdePool, A.uniswapPoolAbi, 'slot0'),
+      read(D.octUsdePool, A.uniswapPoolAbi, 'token0'),
+      read(D.oct, A.erc20Abi, 'balanceOf', [D.octUsdePool]),
+      read(D.usde, A.erc20Abi, 'balanceOf', [D.octUsdePool]),
+    ]);
+    // price of token1 in token0 = (sqrtP / 2^96)^2; OCT price in USDe depends on which side OCT is
+    const p1in0 = (sqrtP * sqrtP * WAD) / (Q96 * Q96);
+    const octIs0 = t0.toLowerCase() === D.oct.toLowerCase();
+    const octPrice = octIs0 ? p1in0 === 0n ? 0n : (WAD * WAD) / p1in0 : p1in0;
+    $('m-price').textContent = `${Number(formatUnits(octPrice, 18)).toFixed(4)} USDe`;
+    const diff = Number(formatUnits(octPrice, 18)) - 1;
+    $('m-par').textContent = `${diff >= 0 ? '+' : ''}${(diff * 100).toFixed(2)}%`;
+    $('m-par').style.color = Math.abs(diff) < 0.005 ? 'var(--ok)' : Math.abs(diff) < 0.02 ? 'var(--warn)' : 'var(--bad)';
+    $('m-liq').textContent = `${fmt(octBal, 0)} OCT + ${fmt(usdeBal, 0)} USDe`;
+    const base = NET.uniswap ? `https://app.uniswap.org` : '';
+    $('lnk-swap').href = base ? `${base}/swap?chain=${NET.uniswap}&inputCurrency=${D.usde}&outputCurrency=${D.oct}` : '#';
+    $('lnk-lp').href = base ? `${base}/positions/create/v3?currencyA=${D.oct}&currencyB=${D.usde}&chain=${NET.uniswap}` : '#';
+    $('lnk-pool').href = NET.explorer ? `${NET.explorer}/address/${D.octUsdePool}` : '#';
+  } catch (e) { console.error(e); $('m-price').textContent = '—'; }
+}
+
 // ---------- vault forms ----------
+function collPreview() {
+  const coll = toWad($('in-coll').value); const p = $('coll-preview'); p.className = 'preview';
+  if (coll === 0n) { p.textContent = 'Enter an amount to see what it can back.'; return; }
+  const value = (coll * price) / WAD;
+  const max = (value * WAD) / MCR;            // at exactly 110%, not advisable
+  const safe = (value * WAD) / (2n * WAD);    // at 200%
+  p.textContent = `Worth ${usd(value)} today. It can back at most ${fmt(max, 0)} OCT at the 110% floor; a comfortable line is around ${fmt(safe, 0)} OCT (200%).`;
+}
 function openPreview() {
   const coll = toWad($('in-coll').value); const debt = toWad($('in-debt').value);
   const p = $('open-preview'); p.className = 'preview';
@@ -247,7 +375,7 @@ function openPreview() {
   const fee = debt / 200n; const composite = debt + fee + GAS_COMP;
   const icr = icrOf(coll, composite);
   const lines = [`Mint fee 0.5%: ${fmt(fee, 2)} OCT. Total debt: ${fmt(composite, 2)} OCT (includes 200 OCT held as liquidation reserve, returned when you close).`,
-    `Collateral ratio: ${pct(icr)}. Liquidation if wstETH falls under $${fmt(liqPrice(coll, composite), 0)} (now $${fmt(price, 0)}).`];
+    `Collateral ratio: ${pct(icr)}. Liquidation if wstETH falls under ${usd(liqPrice(coll, composite))} (now ${usd(price)}).`];
   if (debt < MIN_NET_DEBT) { lines.push('Minimum debt is 1,800 OCT.'); p.className = 'preview bad'; }
   else if (icr < 15n * 10n ** 17n) { lines.push('Under 150%: allowed, but a 27% drop liquidates you. Consider a larger margin.'); p.className = 'preview warn'; }
   p.textContent = lines.join('\n');
@@ -259,13 +387,21 @@ function adjustPreview() {
   if (bor > 0n && rep > 0n) { p.textContent = 'Choose either borrow or repay, not both.'; p.className = 'preview bad'; return; }
   p.textContent = 'One collateral change and one debt change per transaction. Borrowing pays the 0.5% mint fee on the new amount.';
 }
+async function zap() {
+  const amount = toWad($('zap-amount').value);
+  if (amount === 0n) { toast('Enter the ETH amount to convert.', 'bad'); return; }
+  await send('Convert ETH to wstETH', () => wallet.sendTransaction({ account: me, to: D.wstETH, value: amount, chain: NET.chain }));
+}
 async function openVault(ev) {
   ev.preventDefault();
   const coll = toWad($('in-coll').value); const debt = toWad($('in-debt').value);
   if (coll === 0n || debt === 0n) { toast('Enter both amounts.', 'bad'); return; }
+  const allowance = await read(D.wstETH, A.erc20Abi, 'allowance', [me, D.borrowerOperations]);
+  if (allowance < coll) { const rc = await send('Approve wstETH', () => write(D.wstETH, A.erc20Abi, 'approve', [D.borrowerOperations, 2n ** 256n - 1n])); if (!rc) return; }
   const composite = debt + debt / 200n + GAS_COMP;
   const [upper, lower] = await insertHints(nominalCR(coll, composite));
-  await send('Open vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'openTrove', [MAX_FEE, debt, upper, lower, coll]));
+  const rc = await send('Open vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'openTrove', [MAX_FEE, debt, upper, lower, coll]));
+  if (rc) { showStep(3); document.getElementById('succession').scrollIntoView({ behavior: 'smooth' }); }
 }
 async function adjustVault(ev) {
   ev.preventDefault();
@@ -299,10 +435,13 @@ function planPreview() {
   const { accounts, bps } = readPlan();
   const total = bps.reduce((a, b) => a + b, 0);
   const p = $('plan-preview'); p.className = 'preview';
+  const bar = $('meter-bar');
+  bar.style.width = `${Math.min(100, total / 100)}%`;
+  bar.className = `meter-bar${total === 10000 ? ' full' : total > 10000 ? ' over' : ''}`;
   const bad = accounts.filter((a) => a && !looksLikeAddress(a));
   if (bad.length) { p.textContent = `Not an address: ${bad[0]}`; p.className = 'preview bad'; return; }
   if (accounts.length === 0) { p.textContent = 'Add at least one heir.'; return; }
-  p.textContent = total === 10000 ? `${accounts.length} heir${accounts.length > 1 ? 's' : ''}, shares total 100%.` : `Shares total ${(total / 100).toFixed(2)}%; they must total 100%.`;
+  p.textContent = total === 10000 ? `${accounts.length} heir${accounts.length > 1 ? 's' : ''}, shares total 100%. Ready to save.` : `Shares total ${(total / 100).toFixed(2)}%; they must total exactly 100%.`;
   if (total !== 10000) p.className = 'preview warn';
 }
 async function savePlan(ev) {
@@ -319,20 +458,6 @@ async function saveOperator(ev) {
   if (!looksLikeAddress(op)) { toast('Enter the operator address.', 'bad'); return; }
   const floor = parseUnits(String($('op-floor').value || '250'), 16);
   await send('Save operator', () => write(D.successionRegistry, A.registryAbi, 'setOperator', [addr(op), $('op-active').checked, $('op-borrow').checked, floor]));
-}
-async function executePreview() {
-  const a = $('ex-addr').value.trim(); const p = $('ex-preview'); p.className = 'preview';
-  if (!looksLikeAddress(a)) { p.textContent = 'Enter a wallet to read its state.'; return; }
-  const [state, dueAt, execAt] = await read(D.successionRegistry, A.registryAbi, 'successionState', [addr(a)]);
-  const states = ['no plan', 'active', 'due · owner-return window', 'executable by anyone', 'executed'];
-  p.textContent = `${states[state]}${state ? ` · due ${date(dueAt)} · executable ${date(execAt)}` : ''}`;
-  if (state === 3) p.className = 'preview warn';
-}
-async function executePlan(ev) {
-  ev.preventDefault();
-  const a = $('ex-addr').value.trim();
-  if (!looksLikeAddress(a)) { toast('Enter a wallet.', 'bad'); return; }
-  await send('Execute succession', () => write(D.successionRegistry, A.registryAbi, 'execute', [addr(a)]));
 }
 
 // ---------- buffer forms ----------
@@ -365,15 +490,15 @@ async function buyInventory(ev) {
   if (amount === 0n) return;
   const quote = await read(D.redemptionBuffer, A.bufferAbi, 'quoteInventory', [amount, price]);
   const maxIn = (quote * 101n) / 100n;
-  if (!(await ensureAllowance(D.redemptionBuffer, maxIn, 'the buffer'))) return;
-  await send('Buy inventory', () => write(D.redemptionBuffer, A.bufferAbi, 'buyInventory', [amount, maxIn]));
+  if (!(await ensureAllowance(D.redemptionBuffer, maxIn, 'the reserve'))) return;
+  await send('Take the offer', () => write(D.redemptionBuffer, A.bufferAbi, 'buyInventory', [amount, maxIn]));
 }
 async function fillPot(ev) {
   ev.preventDefault();
   const amount = toWad($('fill-amount').value);
   if (amount === 0n) return;
-  if (!(await ensureAllowance(D.redemptionBuffer, amount, 'the buffer'))) return;
-  await send('Fill the pot', () => write(D.redemptionBuffer, A.bufferAbi, 'fill', [amount]));
+  if (!(await ensureAllowance(D.redemptionBuffer, amount, 'the reserve'))) return;
+  await send('Add to the reserve', () => write(D.redemptionBuffer, A.bufferAbi, 'fill', [amount]));
 }
 
 // ---------- boot ----------
@@ -393,7 +518,7 @@ async function boot() {
 
   const list = $('addr-list');
   for (const [k, v] of Object.entries(D)) {
-    if (typeof v !== 'string' || !v.startsWith('0x')) continue;
+    if (typeof v !== 'string' || !v.startsWith('0x') || isZero(v)) continue;
     const dt = document.createElement('dt'); dt.textContent = k;
     const dd = document.createElement('dd'); dd.innerHTML = NET.explorer ? `<a href="${NET.explorer}/address/${v}" target="_blank" rel="noopener">${v}</a>` : v;
     list.append(dt, dd);
@@ -402,18 +527,27 @@ async function boot() {
   $('btn-connect').addEventListener('click', connect);
   $('form-open').addEventListener('submit', openVault);
   $('form-adjust').addEventListener('submit', adjustVault);
-  ['in-coll', 'in-debt'].forEach((id) => $(id).addEventListener('input', openPreview));
+  $('in-coll').addEventListener('input', () => { collPreview(); openPreview(); });
+  $('in-debt').addEventListener('input', openPreview);
   ['adj-add-coll', 'adj-wd-coll', 'adj-borrow', 'adj-repay'].forEach((id) => $(id).addEventListener('input', adjustPreview));
+  document.querySelectorAll('[data-next]').forEach((b) => b.addEventListener('click', () => {
+    const n = Number(b.dataset.next);
+    if (n === 2 && toWad($('in-coll').value) === 0n) { toast('Enter the collateral first.', 'bad'); return; }
+    showStep(n);
+  }));
+  $('btn-zap').addEventListener('click', zap);
   $('btn-close').addEventListener('click', () => send('Close vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'closeTrove')));
   $('btn-claim-surplus').addEventListener('click', () => send('Claim collateral', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'claimCollateral')));
   $('btn-faucet').addEventListener('click', () => send('Mint test wstETH', () => write(D.wstETH, A.wstAbi, 'mint', [me, 10n * WAD])));
+  $('btn-faucet-usde').addEventListener('click', () => { if (isZero(D.usde)) { toast('No test USDe on this chain.', 'bad'); return; } send('Mint test USDe', () => write(D.usde, A.wstAbi, 'mint', [me, 10000n * WAD])); });
   $('btn-approve').addEventListener('click', () => send('Approve wstETH', () => write(D.wstETH, A.erc20Abi, 'approve', [D.borrowerOperations, 2n ** 256n - 1n])));
   $('btn-add-heir').addEventListener('click', () => addHeirRow());
   $('form-plan').addEventListener('submit', savePlan);
+  $('btn-skip-plan').addEventListener('click', () => { planSkipped = true; refreshFlow(); toast('Plan skipped. The alert stays until heirs are named.', 'warn'); });
   $('btn-prove').addEventListener('click', () => send('Prove life', () => write(D.successionRegistry, A.registryAbi, 'proveLife')));
   $('btn-clear-plan').addEventListener('click', () => send('Remove plan', () => write(D.successionRegistry, A.registryAbi, 'clearPlan')));
   $('form-operator').addEventListener('submit', saveOperator);
-  $('form-execute').addEventListener('submit', executePlan);
+  $('form-execute').addEventListener('submit', runDesk);
   $('ex-addr').addEventListener('input', () => executePreview().catch(() => {}));
   $('form-redeem').addEventListener('submit', redeem);
   $('form-buy').addEventListener('submit', buyInventory);
@@ -424,6 +558,7 @@ async function boot() {
   $('btn-sp-claim').addEventListener('click', () => send('Claim pool gain', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [0n])));
 
   if ($('heir-rows').children.length === 0) addHeirRow();
+  showStep(1);
   await refresh();
   refreshTimer = setInterval(() => refresh().catch(() => {}), 15000);
   if (window.ethereum && (await window.ethereum.request({ method: 'eth_accounts' })).length) connect();

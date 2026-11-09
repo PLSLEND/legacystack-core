@@ -18,6 +18,9 @@ import {Script, console} from "forge-std/Script.sol";
 *                       Unset: a MockAggregator at $3,000 is deployed (local chains).
 *   FEED_TIMEOUT        seconds before a round counts as stale (default 48 h on testnets; 4 h on mainnet).
 *   SURPLUS_SINK        where buffer surplus releases go (default: the deployer).
+*   UNISWAP_NPM         Uniswap v3 NonfungiblePositionManager. Sepolia: 0x1238536071E1c677A632429e3655c799b22cDA52.
+*                       When set, a testnet USDe is deployed and an OCT/USDe 0.05% pool is created at 1:1 with
+*                       20,000 OCT + 20,000 USDe of protocol-seeded liquidity in the 0.98-1.02 band.
 *
 * Run: forge script script/Deploy.s.sol --rpc-url $RPC --broadcast --private-key $PK  (or --account)
 */
@@ -33,11 +36,17 @@ interface IDeployBuffer { function setAddresses(address,address,address,address)
 interface IDeployRegistry { function setAddresses(address,address,address,address,address,address) external; }
 interface IDeployAgg { function setDecimals(uint8) external; function setPrice(int) external; function setPrevPrice(int) external; function setUpdateTime(uint) external; function setPrevUpdateTime(uint) external; function setLatestRoundId(uint80) external; function setPrevRoundId(uint80) external; }
 interface IDeployWst { function mint(address,uint) external; function approve(address,uint) external returns (bool); }
+interface IDeployNPM {
+    struct MintParams { address token0; address token1; uint24 fee; int24 tickLower; int24 tickUpper; uint amount0Desired; uint amount1Desired; uint amount0Min; uint amount1Min; address recipient; uint deadline; }
+    function createAndInitializePoolIfNecessary(address token0, address token1, uint24 fee, uint160 sqrtPriceX96) external payable returns (address pool);
+    function mint(MintParams calldata params) external payable returns (uint tokenId, uint128 liquidity, uint amount0, uint amount1);
+}
 
 contract Deploy is Script {
     struct Addrs {
         address tm; address bo; address sp; address ap; address dp; address csp; address gas; address st; address hh; address mtg;
         address oct; address wst; address feed; address buffer; address registry; address issuance; address agg;
+        address desk; address usde; address pool;
     }
 
     function run() external {
@@ -45,6 +54,7 @@ contract Deploy is Script {
         address sink = vm.envOr("SURPLUS_SINK", deployer);
         uint timeout = vm.envOr("FEED_TIMEOUT", uint(48 hours));
         address aggregator = vm.envOr("ETH_USD_AGGREGATOR", address(0));
+        address npm = vm.envOr("UNISWAP_NPM", address(0));
 
         vm.startBroadcast();
         Addrs memory a;
@@ -88,12 +98,30 @@ contract Deploy is Script {
         IDeployHint(a.hh).setAddresses(a.st, a.tm);
         IDeployBuffer(a.buffer).setAddresses(a.tm, a.feed, a.oct, a.wst);
         IDeployRegistry(a.registry).setAddresses(a.bo, a.tm, a.sp, a.csp, a.oct, a.wst);
+        a.desk = _deployArgs("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(a.tm, a.st, a.feed, a.buffer, a.registry, a.oct, a.wst));
 
-        // Seed: a deployer vault and 1 OCT in the Stability Pool (the pool's permanent minimum).
-        IDeployWst(a.wst).mint(deployer, 20 ether);
+        // Seed: a deployer vault (its OCT seeds the pool below) and 1 OCT in the Stability Pool (the pool's
+        // permanent minimum).
+        IDeployWst(a.wst).mint(deployer, 60 ether);
         IDeployWst(a.wst).approve(a.bo, type(uint).max);
-        IDeployBO(a.bo).openTrove(1e18, 2000e18, address(0), address(0), 10 ether);
+        IDeployBO(a.bo).openTrove(1e18, 25_000e18, address(0), address(0), 40 ether);
         IDeploySP(a.sp).provideToSP(1e18);
+
+        // OCT/USDe pool (Uniswap v3, 0.05%), protocol-seeded at par, so the peg and the buffer can be tested
+        // against a market. Testnet only; the mainnet venue is a Curve StableSwap-NG pool.
+        if (npm != address(0)) {
+            a.usde = _deploy("src/testnet/MockUSDe.sol:MockUSDe");
+            IDeployWst(a.usde).mint(deployer, 100_000e18);
+            (address t0, address t1) = a.oct < a.usde ? (a.oct, a.usde) : (a.usde, a.oct);
+            a.pool = IDeployNPM(npm).createAndInitializePoolIfNecessary(t0, t1, 500, uint160(1) << 96);
+            IDeployWst(a.oct).approve(npm, type(uint).max);
+            IDeployWst(a.usde).approve(npm, type(uint).max);
+            IDeployNPM(npm).mint(IDeployNPM.MintParams({
+                token0: t0, token1: t1, fee: 500, tickLower: -200, tickUpper: 200,
+                amount0Desired: 20_000e18, amount1Desired: 20_000e18, amount0Min: 0, amount1Min: 0,
+                recipient: deployer, deadline: block.timestamp + 1 days
+            }));
+        }
 
         vm.stopBroadcast();
 
@@ -116,6 +144,10 @@ contract Deploy is Script {
         vm.serializeAddress(json, "ethUsdAggregator", aggregator);
         vm.serializeAddress(json, "redemptionBuffer", a.buffer);
         vm.serializeAddress(json, "successionRegistry", a.registry);
+        vm.serializeAddress(json, "keeperDesk", a.desk);
+        vm.serializeAddress(json, "usde", a.usde);
+        vm.serializeAddress(json, "octUsdePool", a.pool);
+        vm.serializeAddress(json, "uniswapPositionManager", npm);
         string memory out = vm.serializeAddress(json, "surplusSink", sink);
         string memory path = string.concat("deployments/", vm.toString(block.chainid), ".json");
         vm.writeJson(out, path);

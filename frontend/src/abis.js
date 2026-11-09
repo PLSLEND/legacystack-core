@@ -14,6 +14,7 @@ export const troveManagerAbi = parseAbi([
   'function baseRate() view returns (uint256)',
   'function currentRateIndex() view returns (uint256)',
   'function getTroveOwnersCount() view returns (uint256)',
+  'function MCR() view returns (uint256)',
   'function redeemCollateral(uint256, address, address, address, uint256, uint256, uint256)',
   'function liquidate(address)',
   'function batchLiquidateTroves(address[])',
@@ -111,4 +112,22 @@ export const erc20Abi = parseAbi([
 export const wstAbi = parseAbi([
   'function mint(address, uint256)',
   'function stEthPerToken() view returns (uint256)',
+]);
+
+export const keeperDeskAbi = parseAbi([
+  'struct Pending { uint256 price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; uint256 octReward; uint256 collReward; }',
+  'function pending(uint256 maxScan) view returns (Pending)',
+  'function run(address[] liquidate, address[] execute) returns (uint256 octPaid, uint256 collPaid)',
+]);
+
+export const uniswapPoolAbi = parseAbi([
+  'function slot0() view returns (uint160 sqrtPriceX96, int24 tick, uint16 observationIndex, uint16 observationCardinality, uint16 observationCardinalityNext, uint8 feeProtocol, bool unlocked)',
+  'function token0() view returns (address)',
+  'function token1() view returns (address)',
+  'function liquidity() view returns (uint128)',
+]);
+
+export const aggregatorAbi = parseAbi([
+  'function latestRoundData() view returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)',
+  'function decimals() view returns (uint8)',
 ]);

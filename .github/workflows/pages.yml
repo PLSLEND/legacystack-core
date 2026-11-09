@@ -1,0 +1,40 @@
+# Builds the page bundle from source and commits it, so docs/app.js on main is always the build of
+# frontend/src with the pinned dependencies in frontend/package-lock.json. GitHub Pages serves /docs
+# from main; after the commit a Pages build is requested explicitly (commits made with the workflow
+# token do not trigger one by themselves).
+name: pages
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**', 'deployments/**', '.github/workflows/pages.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: frontend
+      - run: node build.mjs 11155111
+        working-directory: frontend
+      - name: Commit the bundle if it changed
+        run: |
+          git config user.name "pages-build"
+          git config user.email "pages-build@users.noreply.github.com"
+          git add docs/app.js docs/deployment.json
+          git diff --cached --quiet && echo "bundle unchanged" || (git commit -m "build: page bundle from frontend/src" && git push)
+      - name: Request a Pages build
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || echo "build request skipped"

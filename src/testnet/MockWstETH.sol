@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.28;
 
-/// Testnet wstETH: ERC-20 with an open faucet (capped per call) and a stETH-per-token rate that only the
-/// deployer can move. Testnet only; on mainnet the real Lido wstETH is used.
+/// Testnet wstETH: ERC-20 with an open faucet (capped per call), a stETH-per-token rate that only the
+/// deployer can move, and the real contract's behaviour of minting wstETH for ETH sent to it (Lido's wstETH
+/// stakes the ETH and wraps the shares; here the test ETH is parked and the deployer can recycle it).
+/// Testnet only; on mainnet the real Lido wstETH is used.
 contract MockWstETH {
     string public name = "Wrapped liquid staked Ether 2.0 (testnet)";
     string public symbol = "wstETH";
@@ -17,6 +19,15 @@ contract MockWstETH {
     event Approval(address indexed owner, address indexed spender, uint value);
 
     constructor() { rateSetter = msg.sender; }
+
+    /// ETH in, wstETH out at the current rate: the same entry point as Lido's wstETH contract.
+    receive() external payable {
+        uint amount = msg.value * 1e18 / stEthPerToken;
+        require(amount > 0, "wstETH: zero");
+        balanceOf[msg.sender] += amount; totalSupply += amount; emit Transfer(address(0), msg.sender, amount);
+    }
+    /// Testnet housekeeping: the parked test ETH goes back to the deployer for reuse.
+    function recycle() external { require(msg.sender == rateSetter, "rate: not the setter"); payable(rateSetter).transfer(address(this).balance); }
 
     function mint(address to, uint amount) external {
         require(amount <= FAUCET_CAP, "faucet: at most 10,000 per call");

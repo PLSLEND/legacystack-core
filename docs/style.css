@@ -57,7 +57,7 @@ p { margin: 0 0 1rem; }
 .brand-text { display: flex; flex-direction: column; line-height: 1.15; gap: 0.22rem; }
 .brand-name { font-family: var(--head); font-weight: 600; font-size: 1.2rem; letter-spacing: 0.01em; line-height: 1; }
 .brand-sub { font-family: var(--head); font-size: 0.6rem; color: var(--gold); letter-spacing: 0.14em; text-transform: uppercase; white-space: nowrap; }
-.nav { display: flex; gap: 1.1rem; flex-wrap: nowrap; }
+.nav { display: flex; gap: 1rem; flex-wrap: nowrap; }
 .nav a { color: var(--ink-2); font-size: 0.82rem; font-family: var(--head); letter-spacing: 0.03em; white-space: nowrap; }
 .nav a:hover { color: var(--gold-2); text-decoration: none; }
 .wallet { display: flex; align-items: center; gap: 0.7rem; flex-shrink: 0; }
@@ -172,8 +172,31 @@ label.check input { width: auto; margin: 0; accent-color: var(--gold); }
 .toast.ok { border-color: var(--ok); }
 .toast.warn { border-color: var(--warn); }
 
-@media (max-width: 1180px) {
+/* stepped opening, heir meter, invitations */
+.steps { list-style: none; display: flex; gap: 0.4rem; padding: 0; margin: 0 0 1rem; }
+.step { flex: 1; display: flex; align-items: center; gap: 0.5rem; font-family: var(--head); font-size: 0.78rem; letter-spacing: 0.04em; color: var(--ink-3); border-bottom: 2px solid var(--line-soft); padding-bottom: 0.5rem; }
+.step span { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--line-soft); display: inline-flex; align-items: center; justify-content: center; font-size: 0.72rem; }
+.step.is-current { color: var(--gold-2); border-bottom-color: var(--gold); }
+.step.is-current span { border-color: var(--gold); color: var(--gold-2); }
+.step.is-done { color: var(--ink-2); border-bottom-color: rgba(217,174,75,0.5); }
+.step.is-done span { background: var(--gold); color: #140F03; border-color: var(--gold); }
+.label-btn { display: flex; align-items: flex-end; padding-bottom: 0.75rem; }
+.label-btn .btn { width: 100%; }
+.meter { height: 6px; border-radius: 3px; background: rgba(174,184,206,0.15); margin: 0.9rem 0 0.4rem; overflow: hidden; }
+.meter-bar { height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #3D63F5, var(--gold)); transition: width 0.25s ease; }
+.meter-bar.full { background: linear-gradient(90deg, var(--gold), var(--gold-2)); }
+.meter-bar.over { background: var(--bad); }
+.alert { border: 1px solid rgba(227,169,60,0.55); background: rgba(227,169,60,0.08); color: #F1DDB0; border-radius: 4px; padding: 0.7rem 0.9rem; font-size: 0.9rem; margin-bottom: 0.9rem; }
+.invite { border-color: var(--line); background: linear-gradient(180deg, var(--bg-2), var(--bg)); margin-bottom: 1rem; }
+.invite h3 { font-weight: 500; font-size: 1.25rem; margin-bottom: 1rem; }
+.invite-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+.invite h4 { font-family: var(--head); font-weight: 600; font-size: 0.95rem; color: var(--gold-2); margin: 0 0 0.4rem; }
+.invite .btn { margin-top: 0.2rem; }
+
+@media (max-width: 1340px) {
   .nav { display: none; }
+}
+@media (max-width: 1180px) {
   .brand-sub { display: none; }
 }
 @media (max-width: 720px) {

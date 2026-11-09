@@ -23,8 +23,9 @@
     <a href="#mechanics">Mechanics</a>
     <a href="#app">Vault</a>
     <a href="#succession">Succession</a>
-    <a href="#buffer">Buffer</a>
+    <a href="#buffer">Reserve</a>
     <a href="#pool">Stability Pool</a>
+    <a href="#market">Market</a>
     <a href="#system">System</a>
   </nav>
   <div class="wallet">
@@ -65,24 +66,30 @@
 <section id="strategy" class="section">
   <div class="section-head">
     <span class="eyebrow">The strategy</span>
-    <h2>Three moves, in the right order</h2>
-    <p>Most people sell what grows to pay for what they need, and lose the growth. Old family fortunes were kept the other way round: hold the asset, borrow against it, hand it down. This protocol puts that discipline into a vault anyone can open, with rules that cannot be changed after the fact.</p>
+    <h2>One asset, working four times</h2>
+    <p>Most people sell what grows to pay for what they need, and lose the growth. Old family fortunes were kept the other way round: hold the asset, borrow against it, put the liquidity to work, hand the whole structure down. Each layer is money the same asset earns again. This protocol puts that discipline into a vault anyone can open, with rules that cannot be changed after the fact.</p>
   </div>
   <div class="moves">
     <article class="move">
-      <div class="move-num">01</div>
-      <h3>Grow</h3>
-      <p>Hold an asset that compounds and keep holding it. Staked ether (wstETH) earns its own staking yield inside the vault, year after year, whether you borrow or not. The protocol never touches it except to protect itself.</p>
+      <div class="move-num">01 · It grows</div>
+      <h3>Hold</h3>
+      <p>Staked ether (wstETH) earns its own staking yield inside the vault, year after year, whether you borrow or not. The protocol never touches it except to protect itself.</p>
       <p class="move-note">Nobody sells your collateral for you unless it falls below the safety line you can read on the screen.</p>
     </article>
     <article class="move">
-      <div class="move-num">02</div>
+      <div class="move-num">02 · It backs credit</div>
       <h3>Borrow</h3>
       <p>Draw OCT, the protocol's loan unit, against your wstETH at a fixed 1.5% a year. No application, no credit file, no counterparty. You decide how much to draw; the protocol only enforces the 110% floor and a 0.5% mint fee.</p>
       <p class="move-note">OCT is minted when you borrow and burned when you repay. It is the unit of your loan, nothing more.</p>
     </article>
     <article class="move">
-      <div class="move-num">03</div>
+      <div class="move-num">03 · The liquidity works</div>
+      <h3>Deploy</h3>
+      <p>The OCT you drew is yours to use. Inside the protocol it can stand in the Stability Pool, where it earns liquidated collateral at a discount, or in the OCT/USDe pool, where it earns trading fees. Both stay inside your succession plan.</p>
+      <p class="move-note">Or it leaves for life itself. The vault does not care what you do with it; it only watches the ratio.</p>
+    </article>
+    <article class="move">
+      <div class="move-num">04 · It passes on</div>
       <h3>Pass it on</h3>
       <p>Name up to ten heirs and their shares. Every action you take with your key is a sign of life. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault pays its own debt at par and delivers what remains directly into your heirs' wallets.</p>
       <p class="move-note">No custodian, no paperwork, no death certificate. A clock, and a plan you can change at any time.</p>
@@ -94,11 +101,11 @@
   <div class="section-head">
     <span class="eyebrow">The mechanics</span>
     <h2>What stands behind every vault</h2>
-    <p>Four mechanisms, all inside the protocol, all funded by the protocol's own fees. No treasury, no committee, no discretionary intervention.</p>
+    <p>Four mechanisms, all inside the protocol, all funded by the protocol's own fees. No treasury, no committee, no discretionary intervention. Housekeeping is done by whoever presses the button and is paid for it.</p>
   </div>
   <div class="mech">
     <article class="mech-item">
-      <h3>Redemption Buffer</h3>
+      <h3>Redemption Reserve</h3>
       <p>A reserve of wstETH that receives every fee and all interest. Redemptions are served from this reserve first, so your vault is touched only when the reserve is empty. Its size also sets how much the system may lend: $1,000,000 plus $100 for every $1 it holds.</p>
     </article>
     <article class="mech-item">
@@ -118,7 +125,7 @@
     <h3>In plain words</h3>
     <ul>
       <li>The protocol holds no keys. Nobody can freeze it, upgrade it, change the rate or take the collateral. Nobody can help you either: write your heirs down.</li>
-      <li>Borrowing costs a 0.5% mint fee plus 1.5% a year. Redemptions carry a 0.75% minimum fee. Fees and interest feed the Redemption Buffer, which protects borrowers from redemptions and sets the lending limit.</li>
+      <li>Borrowing costs a 0.5% mint fee plus 1.5% a year. Redemptions carry a 0.75% minimum fee. Fees and interest feed the Redemption Reserve, which protects borrowers from redemptions and sets the lending limit.</li>
       <li>If your collateral ratio falls under 110%, your vault can be liquidated by anyone. Keep a margin; the dashboard shows your liquidation price at all times.</li>
       <li>LegacyStack is software. It is not a bank, an insurer or an investment firm. This page is a test deployment of unaudited code on a test network: it teaches the mechanics and is not an offer, advice or a promise.</li>
     </ul>
@@ -133,6 +140,7 @@
   <div class="row-stats">
     <div class="stat"><span class="stat-label">wstETH price</span><span id="s-price" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Oracle</span><span id="s-oracle" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Your ETH</span><span id="s-eth" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Your wstETH</span><span id="s-wst" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Your OCT</span><span id="s-oct" class="stat-value">—</span></div>
   </div>
@@ -146,6 +154,7 @@
         <dt>Debt</dt><dd id="v-debt">—</dd>
         <dt>Collateral ratio</dt><dd id="v-icr">—</dd>
         <dt>Liquidation price</dt><dd id="v-liq">—</dd>
+        <dt>Debt in front of you</dt><dd id="v-front">—</dd>
         <dt>Interest</dt><dd>1.5% a year, fixed</dd>
       </dl>
       <div class="actions">
@@ -154,14 +163,39 @@
       </div>
     </div>
 
-    <div class="box">
+    <div class="box" id="open-box">
       <h3 id="form-title">Open a vault</h3>
+      <ol class="steps" id="steps">
+        <li class="step is-current" data-step="1"><span>1</span>Collateral</li>
+        <li class="step" data-step="2"><span>2</span>Borrow</li>
+        <li class="step" data-step="3"><span>3</span>Heirs</li>
+      </ol>
+
       <form id="form-open">
-        <label>Collateral to deposit (wstETH)<input id="in-coll" type="number" step="any" min="0" placeholder="e.g. 2"></label>
-        <label>OCT to borrow<input id="in-debt" type="number" step="any" min="0" placeholder="minimum 1,800"></label>
-        <div class="preview" id="open-preview">Enter amounts to see the ratio, the fee and the liquidation price.</div>
-        <button class="btn btn-gold" type="submit" id="btn-open">Open vault</button>
+        <div class="step-pane" id="pane-1">
+          <p class="small">The vault holds wstETH. If you hold plain ETH, convert it first: the wstETH contract takes ETH and returns wstETH at the current rate. On Ethereum that is Lido's contract; converting back to ETH goes through Lido's withdrawal queue or a swap.</p>
+          <div class="adjust-row">
+            <label>ETH to convert<input id="zap-amount" type="number" step="any" min="0" placeholder="e.g. 2"></label>
+            <div class="label-btn"><button type="button" id="btn-zap" class="btn btn-ghost">Convert to wstETH</button></div>
+          </div>
+          <label>wstETH to deposit<input id="in-coll" type="number" step="any" min="0" placeholder="e.g. 2"></label>
+          <div class="preview" id="coll-preview">Enter an amount to see what it can back.</div>
+          <div class="actions">
+            <button type="button" id="btn-approve" class="btn btn-ghost">Approve wstETH once</button>
+            <button type="button" class="btn btn-gold" data-next="2">Next: borrow</button>
+          </div>
+        </div>
+
+        <div class="step-pane hidden" id="pane-2">
+          <label>OCT to borrow<input id="in-debt" type="number" step="any" min="0" placeholder="minimum 1,800"></label>
+          <div class="preview" id="open-preview">Enter amounts to see the ratio, the fee and the liquidation price.</div>
+          <div class="actions">
+            <button type="button" class="btn btn-ghost" data-next="1">Back</button>
+            <button class="btn btn-gold" type="submit" id="btn-open">Open vault</button>
+          </div>
+        </div>
       </form>
+
       <form id="form-adjust" class="hidden">
         <div class="adjust-row">
           <label>Add collateral (wstETH)<input id="adj-add-coll" type="number" step="any" min="0" placeholder="0"></label>
@@ -179,10 +213,10 @@
 
   <div class="box box-dashed">
     <h3>Testnet tools</h3>
-    <p class="small">Test wstETH is free: the faucet mints it to your wallet. Gas on the test network comes from a public faucet; links are at the bottom of the page.</p>
+    <p class="small">Test wstETH and test USDe are free: the faucets mint them to your wallet. Gas on the test network comes from a public faucet; links are at the bottom of the page.</p>
     <div class="actions">
       <button id="btn-faucet" class="btn btn-ghost">Mint 10 test wstETH</button>
-      <button id="btn-approve" class="btn btn-ghost">Approve wstETH once</button>
+      <button id="btn-faucet-usde" class="btn btn-ghost">Mint 10,000 test USDe</button>
     </div>
   </div>
 </section>
@@ -209,21 +243,48 @@
         <button id="btn-clear-plan" class="btn btn-ghost" disabled>Remove plan</button>
       </div>
     </div>
-    <div class="box">
+    <div class="box" id="plan-box">
       <h3>Set or change the plan</h3>
+      <div class="alert hidden" id="plan-alert">Your vault is open and nobody is named. Without a plan, nothing passes on: after a year of silence the vault simply sits there. Two minutes now, changeable any time.</div>
       <form id="form-plan">
         <div id="heir-rows"></div>
         <button type="button" id="btn-add-heir" class="btn btn-small">Add heir</button>
-        <label>Fallback heir (optional, receives what cannot be delivered)<input id="in-fallback" type="text" placeholder="0x…"></label>
+        <div class="meter" aria-hidden="true"><div class="meter-bar" id="meter-bar"></div></div>
         <div class="preview" id="plan-preview">Shares must total 100%.</div>
-        <button class="btn btn-gold" type="submit">Save plan</button>
+        <label>Fallback heir (optional, receives what cannot be delivered)<input id="in-fallback" type="text" placeholder="0x…"></label>
+        <div class="actions">
+          <button class="btn btn-gold" type="submit">Save plan</button>
+          <button class="btn btn-ghost hidden" type="button" id="btn-skip-plan">Skip for now</button>
+        </div>
       </form>
     </div>
   </div>
+
+  <div class="box invite hidden" id="invite">
+    <h3>Your vault is open. Where should the OCT work?</h3>
+    <div class="invite-grid">
+      <div>
+        <h4>Stability Pool</h4>
+        <p class="small">Deposit OCT. When a vault is liquidated, the pool pays its debt and receives the collateral at a discount: you earn wstETH below market. STACK emissions for depositors come with the token launch; none on the testnet. The deposit is inside your succession plan.</p>
+        <a class="btn btn-ghost" href="#pool">Go to the pool</a>
+      </div>
+      <div>
+        <h4>OCT/USDe pool</h4>
+        <p class="small">Provide OCT and USDe to the market pool and earn the trading fee on every swap. On the testnet the pool is Uniswap v3; on Ethereum it is a Curve pool with protocol-owned liquidity alongside yours.</p>
+        <a class="btn btn-ghost" href="#market">Go to the market</a>
+      </div>
+      <div>
+        <h4>Keep it liquid</h4>
+        <p class="small">Or hold the OCT, repay when you like, and let the vault sit. Interest is 1.5% a year, fixed. Your liquidation price is in the position box above.</p>
+        <a class="btn btn-ghost" href="#app">Back to the vault</a>
+      </div>
+    </div>
+  </div>
+
   <div class="grid-2">
     <div class="box">
       <h3>Operator (optional)</h3>
-      <p class="small">An operator may add collateral and repay for you. If you allow it, it may also borrow and withdraw, always to your wallet, as long as the vault keeps the ratio floor you set. Operator actions never count as your sign of life.</p>
+      <p class="small">An operator may add collateral and repay for you: a spouse, a keeper, an agent. If you allow it, it may also borrow and withdraw, always to your wallet, as long as the vault keeps the ratio floor you set. Operator actions never count as your sign of life, so a bot cannot keep a vault alive after its owner is gone.</p>
       <form id="form-operator">
         <label>Operator address<input id="op-addr" type="text" placeholder="0x…"></label>
         <label class="check"><input id="op-active" type="checkbox" checked> Active</label>
@@ -233,12 +294,17 @@
       </form>
     </div>
     <div class="box">
-      <h3>Execute a plan (anyone)</h3>
-      <p class="small">When a wallet's plan is executable, anyone may call the settlement and is paid a small reward from the estate. If the system cannot settle the whole debt at par today, the call does what it can and may be repeated.</p>
+      <h3>Keeper desk</h3>
+      <p class="small">The protocol has no staff. Whoever presses this button does the housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, and interest accrual and reserve releases on the way. One transaction does everything that is pending.</p>
+      <dl class="kv">
+        <dt>Vaults to liquidate</dt><dd id="k-liq">—</dd>
+        <dt>Estates to settle</dt><dd id="k-exe">—</dd>
+        <dt>Reward if run now</dt><dd id="k-reward">—</dd>
+      </dl>
       <form id="form-execute">
-        <label>Wallet<input id="ex-addr" type="text" placeholder="0x…"></label>
+        <label>Also settle this wallet (optional)<input id="ex-addr" type="text" placeholder="0x…"></label>
         <div class="preview" id="ex-preview">Enter a wallet to read its state.</div>
-        <button class="btn btn-ghost" type="submit">Execute succession</button>
+        <button class="btn btn-gold" type="submit" id="btn-run-desk">Run the desk</button>
       </form>
       <div class="actions"><button id="btn-escrow" class="btn btn-ghost hidden">Claim escrow</button></div>
     </div>
@@ -247,7 +313,7 @@
 
 <section id="buffer" class="section panel">
   <div class="section-head">
-    <span class="eyebrow">Redemption Buffer <em class="tag">testnet</em></span>
+    <span class="eyebrow">Redemption Reserve <em class="tag">testnet</em></span>
     <h2>The reserve</h2>
     <p>Every fee and all interest end up here. Redemptions are served from the reserve first, so vaults are touched only when it is empty. The reserve also sets the lending limit.</p>
   </div>
@@ -293,11 +359,17 @@
     <h2>Liquidation capital</h2>
     <p>OCT deposited here absorbs liquidated debt and receives the liquidated collateral in exchange, at a discount. Your deposit is part of your succession plan.</p>
   </div>
+  <div class="row-stats">
+    <div class="stat"><span class="stat-label">Pool size</span><span id="sp-total" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Share of OCT supply</span><span id="sp-share" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Collateral held for depositors</span><span id="sp-coll" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">STACK emissions</span><span id="sp-stack" class="stat-value">none on the testnet</span></div>
+  </div>
   <div class="grid-2">
     <div class="box">
       <dl class="kv">
-        <dt>Pool size</dt><dd id="sp-total">—</dd>
         <dt>Your deposit</dt><dd id="sp-mine">—</dd>
+        <dt>Your share of the pool</dt><dd id="sp-mine-share">—</dd>
         <dt>Your collateral gain</dt><dd id="sp-gain">—</dd>
       </dl>
     </div>
@@ -314,6 +386,25 @@
   </div>
 </section>
 
+<section id="market" class="section panel">
+  <div class="section-head">
+    <span class="eyebrow">Market <em class="tag">testnet</em></span>
+    <h2>OCT/USDe</h2>
+    <p>Where OCT changes hands. The protocol seeded this pool at par with its own OCT. When the market price drifts under par, anyone can buy OCT here and redeem it at par against the reserve; when it drifts above, anyone can mint and sell. That arbitrage is what holds the price, and this is the place to watch it work.</p>
+  </div>
+  <div class="row-stats">
+    <div class="stat"><span class="stat-label">OCT price in the pool</span><span id="m-price" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Distance from par</span><span id="m-par" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Pool holds</span><span id="m-liq" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Venue</span><span id="m-venue" class="stat-value">Uniswap v3 · 0.05%</span></div>
+  </div>
+  <div class="actions">
+    <a id="lnk-swap" class="btn btn-gold" href="#" target="_blank" rel="noopener">Trade on Uniswap</a>
+    <a id="lnk-lp" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Provide liquidity</a>
+    <a id="lnk-pool" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Pool contract</a>
+  </div>
+</section>
+
 <section id="system" class="section panel">
   <div class="section-head">
     <span class="eyebrow">System <em class="tag">testnet</em></span>
@@ -322,10 +413,14 @@
   <div class="row-stats">
     <div class="stat"><span class="stat-label">Total collateral</span><span id="y-coll" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Total debt</span><span id="y-debt" class="stat-value">—</span></div>
-    <div class="stat"><span class="stat-label">Total collateral ratio</span><span id="y-tcr" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">System ratio</span><span id="y-tcr" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Vaults</span><span id="y-count" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Vaults under 120%</span><span id="y-risky" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Riskiest vault</span><span id="y-lowest" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Mint fee now</span><span id="y-mintfee" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Redemption fee now</span><span id="y-redfee" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Interest index</span><span id="y-index" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">ETH/USD (Chainlink)</span><span id="y-eth" class="stat-value">—</span></div>
   </div>
   <div class="box">
     <h3>Vaults by collateral ratio, riskiest first</h3>
@@ -343,7 +438,7 @@
 <footer class="site-footer">
   <div class="footer-brand"><img src="assets/lion.svg" alt="" class="footer-mark"><span>LegacyStack</span></div>
   <p>LegacyStack is software, not a bank, an insurer or an investment firm. This is a test deployment of unaudited code on the Sepolia test network. The code is published under the MIT licence at <a href="https://github.com/PLSLEND/legacystack-core" rel="noopener">github.com/PLSLEND/legacystack-core</a>; lineage Liquity V1 (MIT).</p>
-  <p>Test ether for gas: <a href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" rel="noopener">Google Cloud faucet</a>, <a href="https://www.alchemy.com/faucets/ethereum-sepolia" rel="noopener">Alchemy faucet</a>, <a href="https://sepolia-faucet.pk910.de/" rel="noopener">pk910 PoW faucet</a>. Test wstETH: the faucet button in the vault section.</p>
+  <p>Test ether for gas: <a href="https://cloud.google.com/application/web3/faucet/ethereum/sepolia" rel="noopener">Google Cloud faucet</a>, <a href="https://www.alchemy.com/faucets/ethereum-sepolia" rel="noopener">Alchemy faucet</a>, <a href="https://sepolia-faucet.pk910.de/" rel="noopener">pk910 PoW faucet</a>. Test wstETH and USDe: the faucet buttons in the vault section.</p>
 </footer>
 
 <div id="toast" class="toast hidden"></div>

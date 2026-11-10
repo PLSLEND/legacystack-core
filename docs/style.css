@@ -96,10 +96,10 @@ main { max-width: 1140px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem) 3rem
 .lede { color: var(--ink-2); font-size: clamp(1.02rem, 1.7vw, 1.2rem); max-width: 720px; margin: 0.9rem auto 1.5rem; line-height: 1.65; }
 .hero-actions { display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
 
-.glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 6px; margin: 2.5rem 0 0; background: var(--bg-2); overflow: hidden; }
+.glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 6px; margin: 2.5rem 0 0; background: var(--bg-2); overflow: hidden; }
 .glance-item { padding: 1.3rem 1.4rem; border-right: 1px solid var(--line-soft); display: flex; flex-direction: column; gap: 0.3rem; }
 .glance-item:last-child { border-right: none; }
-.glance-value { font-family: var(--head); font-weight: 500; font-size: 2rem; color: var(--gold-2); line-height: 1; }
+.glance-value { font-family: var(--head); font-weight: 500; font-size: 1.85rem; color: var(--gold-2); line-height: 1; white-space: nowrap; }
 .glance-label { color: var(--ink-2); font-size: 0.86rem; line-height: 1.45; }
 
 .section { margin-top: 4.5rem; scroll-margin-top: 92px; }

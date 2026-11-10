@@ -49,7 +49,7 @@
     <div class="tagline">Digital Wealth, Credit &amp; Inheritance</div>
     <div class="rule"><span></span><i></i><span></span></div>
     <h1>Grow. Borrow. Pass&nbsp;it&nbsp;on.</h1>
-    <p class="lede">A fixed-rate credit line against staked ether, written once in code and never changed. You keep the asset that grows, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
+    <p class="lede">A fixed-rate credit line against your assets. No middleman: only you and an immutable contract. You keep the asset that grows, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
     <div class="hero-actions">
       <a class="btn btn-gold" href="#app">Open the testnet vault</a>
       <a class="btn btn-ghost" href="#strategy">Read the strategy</a>
@@ -61,6 +61,7 @@
   <div class="glance-item"><span class="glance-value">1.5%</span><span class="glance-label">Fixed interest, per year, for the life of the deployment</span></div>
   <div class="glance-item"><span class="glance-value">110%</span><span class="glance-label">Minimum collateral ratio; your liquidation price is always on screen</span></div>
   <div class="glance-item"><span class="glance-value">0</span><span class="glance-label">Admin keys. No pause, no upgrade, no rate change, no one to ask</span></div>
+  <div class="glance-item"><span class="glance-value">None</span><span class="glance-label">Repayment schedule. Repay when you choose, in part or in full, or not at all while the ratio holds. No instalments, no maturity date</span></div>
   <div class="glance-item"><span class="glance-value">1 year</span><span class="glance-label">Safety lock. Nothing moves while you are active; only a full year of silence, then thirty days of grace, can start a transfer</span></div>
 </section>
 
@@ -68,26 +69,26 @@
   <div class="section-head">
     <span class="eyebrow">The strategy</span>
     <h2>One asset, working four times</h2>
-    <p>Most people sell what grows to pay for what they need, and lose the growth. Old family fortunes were kept the other way round: hold the asset, borrow against it, put the liquidity to work, hand the whole structure down. Each layer is money the same asset earns again. This protocol puts that discipline into a vault anyone can open, with rules that cannot be changed after the fact.</p>
+    <p>Most people sell what grows to pay for what they need, and lose the growth. Family offices and private banks have always done the opposite: hold the asset, borrow against it, put the liquidity to work, hand the whole structure down. That playbook used to need a banker, a trust and a great deal of money. Here it needs a wallet. Each layer is money the same asset earns again, and the rules cannot be changed after the fact.</p>
   </div>
   <div class="moves">
     <article class="move">
       <div class="move-num">01 · It grows</div>
       <h3>Hold</h3>
-      <p>Staked ether (wstETH) earns its own staking yield inside the vault, year after year, whether you borrow or not. The protocol never touches it except to protect itself.</p>
-      <p class="move-note">Nobody sells your collateral for you unless it falls below the safety line you can read on the screen.</p>
+      <p>Staked ether (wstETH) earns its own staking yield inside the vault, year after year, whether you borrow or not. An asset that can grow, with real yield of its own.</p>
+      <p class="move-note">Real yield: the rewards Ethereum pays the validators who run the network, from transaction fees and new issuance. The chain paying for its own security.</p>
     </article>
     <article class="move">
       <div class="move-num">02 · It backs credit</div>
       <h3>Borrow</h3>
-      <p>Draw OCT, the protocol's loan unit, against your wstETH at a fixed 1.5% a year. No application, no credit file, no counterparty. You decide how much to draw; the protocol only enforces the 110% floor and a 0.5% mint fee.</p>
-      <p class="move-note">OCT is minted when you borrow and burned when you repay. It is the unit of your loan, nothing more.</p>
+      <p>Draw OCT, the protocol's loan unit, against your wstETH at a fixed 1.5% a year. No application, no credit file, no counterparty. You decide how much to draw; the protocol enforces one rule, the 110% minimum collateral ratio.</p>
+      <p class="move-note">OCT is minted when you borrow and burned when you repay: an over-collateralised unit, redeemable for a dollar's worth of collateral less the redemption fee, with no issuer and no freeze function. Only you and the contract can mint or burn it.</p>
     </article>
     <article class="move">
       <div class="move-num">03 · The liquidity works</div>
       <h3>Deploy</h3>
-      <p>The OCT you drew is yours to use. Inside the protocol it can stand in the Stability Pool, where it earns liquidated collateral at a discount, or in the OCT/USDe pool, where it earns trading fees. Both stay inside your succession plan.</p>
-      <p class="move-note">Or it leaves for life itself. The vault does not care what you do with it; it only watches the ratio.</p>
+      <p>The OCT you drew is yours. Inside the protocol it can work in the Stability Pool, earning liquidated collateral at a discount, or in the OCT/USDe pool, earning trading fees. Every position inside the protocol stays inside your succession plan.</p>
+      <p class="move-note">Or take it out. It is a token in your wallet like any other; the vault does not care where it goes, it only watches the ratio.</p>
     </article>
     <article class="move">
       <div class="move-num">04 · It passes on</div>
@@ -102,7 +103,7 @@
   <div class="section-head">
     <span class="eyebrow">The mechanics</span>
     <h2>What stands behind every vault</h2>
-    <p>Four mechanisms, all inside the protocol, all funded by the protocol's own fees. No treasury, no committee, no discretionary intervention. Housekeeping is done by whoever presses the button and is paid for it.</p>
+    <p>Four mechanisms, all inside the protocol, all funded by the protocol's own fees. No treasury, no committee, no discretionary intervention, and no one between you and the contract: you decide, you act, the chain records it. Housekeeping is done by whoever presses the button and is paid for it.</p>
   </div>
   <div class="mech">
     <article class="mech-item">
@@ -125,7 +126,7 @@
   <div class="terms">
     <h3>In plain words</h3>
     <ul>
-      <li>The protocol holds no keys. Nobody can freeze it, upgrade it, change the rate or take the collateral. Nobody can help you either: write your heirs down.</li>
+      <li>There is no middleman. The protocol holds no keys: nobody can freeze it, upgrade it, change the rate or take the collateral. It is you, the contract and the blockchain. Nobody can help you either: write your heirs down.</li>
       <li>Borrowing costs a 0.5% mint fee plus 1.5% a year. Redemptions carry a 0.75% minimum fee. Fees and interest feed the Redemption Reserve, which protects borrowers from redemptions and sets the lending limit.</li>
       <li>If your collateral ratio falls under 110%, your vault can be liquidated by anyone. Keep a margin; the dashboard shows your liquidation price at all times.</li>
       <li>LegacyStack is software. It is not a bank, an insurer or an investment firm. This page is a test deployment of unaudited code on a test network: it teaches the mechanics and is not an offer, advice or a promise.</li>

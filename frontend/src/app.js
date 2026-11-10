@@ -374,7 +374,8 @@ function openPreview() {
   if (coll === 0n || debt === 0n) { p.textContent = 'Enter amounts to see the ratio, the fee and the liquidation price.'; return; }
   const fee = debt / 200n; const composite = debt + fee + GAS_COMP;
   const icr = icrOf(coll, composite);
-  const lines = [`Mint fee 0.5%: ${fmt(fee, 2)} OCT. Total debt: ${fmt(composite, 2)} OCT (includes 200 OCT held as liquidation reserve, returned when you close).`,
+  const share = (x) => `${(Number(x * 10000n / composite) / 100).toFixed(1)}%`;
+  const lines = [`You receive ${fmt(debt, 2)} OCT (${share(debt)} of the total debt of ${fmt(composite, 2)} OCT). The reserve keeps the 0.5% mint fee, ${fmt(fee, 2)} OCT (${share(fee)}). 200 OCT (${share(GAS_COMP)}) is parked as liquidation reserve and returned when you close.`,
     `Collateral ratio: ${pct(icr)}. Liquidation if wstETH falls under ${usd(liqPrice(coll, composite))} (now ${usd(price)}).`];
   if (debt < MIN_NET_DEBT) { lines.push('Minimum debt is 1,800 OCT.'); p.className = 'preview bad'; }
   else if (icr < 15n * 10n ** 17n) { lines.push('Under 150%: allowed, but a 27% drop liquidates you. Consider a larger margin.'); p.className = 'preview warn'; }

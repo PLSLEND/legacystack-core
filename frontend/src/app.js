@@ -26,6 +26,7 @@ let heirRowCount = 0;
 let allTroves = [];     // the sorted list, riskiest first, for "debt in front of you"
 let desk = null;        // last Keeper desk read
 let hasVault = false; let hasPlan = false;
+const bal = { eth: 0n, wst: 0n, oct: 0n, coll: 0n, debt: 0n, spDep: 0n, rdDep: 0n, inv: 0n };   // what the Max buttons read
 let isZero = (a) => !a || a === zeroAddress;
 
 // ---------- helpers ----------
@@ -202,7 +203,7 @@ async function refreshBuffer() {
   const filled = target > 0n ? (potUsd * 100n) / target : 0n;
   $('b-pot').textContent = `${fmt(pot, 3)} wstETH (${usd(potUsd)}, ${filled}% of target)`;
   $('b-target').textContent = `${usd(target)} (15% of ${fmt(circ, 0)} OCT)`;
-  $('b-inv').textContent = `${fmt(inv, 2)} OCT`;
+  $('b-inv').textContent = `${fmt(inv, 2)} OCT`; bal.inv = inv;
   $('b-ceiling').textContent = `${usd(ceiling)} · used ${fmt(debt, 0)}`;
   $('rd-preview').textContent = `The reserve can serve ${fmt(cap, 0)} OCT right now; anything above that is redeemed from the riskiest vaults.`;
   const [rel, last] = await Promise.all([read(D.redemptionBuffer, A.bufferAbi, 'releasable', [price]), read(D.redemptionBuffer, A.bufferAbi, 'lastRelease')]);
@@ -235,7 +236,7 @@ async function refreshDeposit() {
   const [mine, until, pts] = await Promise.all([
     read(D.redemptionBuffer, A.bufferAbi, 'depositOf', [me]), read(D.redemptionBuffer, A.bufferAbi, 'lockedUntil', [me]), read(D.redemptionBuffer, A.bufferAbi, 'pointsOf', [me]),
   ]);
-  $('rd-mine').textContent = `${fmt(mine, 4)} wstETH`;
+  $('rd-mine').textContent = `${fmt(mine, 4)} wstETH`; bal.rdDep = mine;
   $('rd-unlock').textContent = mine > 0n ? (Number(until) * 1000 <= Date.now() ? 'unlocked' : date(until)) : '—';
   $('rd-points').textContent = `${fmt(pts / 86400n, 3)} wstETH-days`;
   const claimable = isZero(D.reserveRewards) ? 0n : await read(D.reserveRewards, A.rewardsAbi, 'claimable', [me]);
@@ -266,6 +267,7 @@ async function refreshPoolAndVault() {
   $('s-eth').textContent = fmt(eth, 4);
   $('s-wst').textContent = fmt(wst, 3);
   $('s-oct').textContent = fmt(oct, 2);
+  Object.assign(bal, { eth, wst, oct, spDep: dep, coll: Number(status) === 1 ? coll : 0n, debt: Number(status) === 1 ? debt : 0n });
   $('sp-mine').textContent = fmt(dep, 2, 'OCT');
   $('sp-mine-share').textContent = total > 0n ? pct((dep * WAD) / total) : '—';
   $('sp-gain').textContent = fmt(gain, 4, 'wstETH');
@@ -577,8 +579,8 @@ async function depositReserve(ev) {
   await send('Reserve deposit', () => write(D.redemptionBuffer, A.bufferAbi, 'deposit', [amount]));
 }
 async function withdrawReserve() {
-  const amount = toWad($('dep-amount').value);
-  if (amount === 0n) { toast('Enter the wstETH amount to withdraw.', 'bad'); return; }
+  const amount = toWad($('dep-amount').value) || bal.rdDep;     // empty field: the whole deposit
+  if (amount === 0n) { toast('Nothing deposited.', 'bad'); return; }
   await send('Withdraw the deposit', () => write(D.redemptionBuffer, A.bufferAbi, 'withdraw', [amount]));
 }
 async function buyLot() {
@@ -588,6 +590,55 @@ async function buyLot() {
   const allowance = await read(D.stack, A.erc20Abi, 'allowance', [me, D.burnAuction]);
   if (allowance < cost) { const rc = await send('Approve STACK', () => write(D.stack, A.erc20Abi, 'approve', [D.burnAuction, 2n ** 256n - 1n])); if (!rc) return; }
   await send('Buy the lot', () => write(D.burnAuction, A.auctionAbi, 'buy', [(cost * 102n) / 100n]));
+}
+
+// ---------- Max buttons: fill a field with what the wallet or the position allows ----------
+const SAFE = 15n * 10n ** 17n;                 // the computed maxima keep the vault at 150%, never at the 110% line
+const MAX_RULES = {
+  'zap-amount':   () => ({ v: bal.eth > 5n * 10n ** 15n ? bal.eth - 5n * 10n ** 15n : 0n, d: 18, why: 'your ETH, less a little for gas' }),
+  'in-coll':      () => ({ v: bal.wst, d: 18, why: 'your wstETH' }),
+  'adj-add-coll': () => ({ v: bal.wst, d: 18, why: 'your wstETH' }),
+  'gift-amount':  () => ({ v: bal.wst, d: 18, why: 'your wstETH' }),
+  'fill-amount':  () => ({ v: bal.wst, d: 18, why: 'your wstETH' }),
+  'dep-amount':   () => ({ v: bal.wst, d: 18, why: 'your wstETH' }),
+  'in-debt':      () => { const coll = toWad($('in-coll').value); if (coll === 0n) return { v: null, why: 'enter the collateral first' };
+                          const composite = (coll * price) / SAFE; const v = composite > GAS_COMP ? ((composite - GAS_COMP) * 1000n) / 1005n : 0n; return { v, d: 0, why: 'what keeps the vault at 150%' }; },
+  'adj-borrow':   () => { const room = (bal.coll * price) / SAFE; const v = room > bal.debt ? ((room - bal.debt) * 1000n) / 1005n : 0n; return { v, d: 0, why: 'what keeps the vault at 150%' }; },
+  'adj-wd-coll':  () => { const need = price > 0n ? (bal.debt * SAFE) / price : bal.coll; return { v: bal.coll > need ? bal.coll - need : 0n, d: 4, why: 'what keeps the vault at 150%' }; },
+  'adj-repay':    () => { const toMin = bal.debt > GAS_COMP + MIN_NET_DEBT ? bal.debt - GAS_COMP - MIN_NET_DEBT : 0n; return { v: toMin < bal.oct ? toMin : bal.oct, d: 18, why: 'down to the 1,800 OCT minimum; use Close vault to repay everything' }; },
+  'rd-amount':    () => ({ v: bal.oct, d: 18, why: 'your OCT' }),
+  'sp-amount':    () => ({ v: bal.oct, d: 18, why: 'your OCT; an empty field withdraws the whole deposit' }),
+  'buy-amount':   () => { const afford = (((bal.wst * price) / WAD) * 1000n) / 1005n; return { v: afford < bal.inv ? afford : bal.inv, d: 2, why: 'what your wstETH buys, up to the inventory' }; },
+};
+function wireMax() {
+  for (const [id, rule] of Object.entries(MAX_RULES)) {
+    const input = $(id); if (!input) continue;
+    const label = input.closest('label'); label.classList.add('has-max');
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'max'; b.textContent = 'Max'; b.title = rule().why;
+    b.addEventListener('click', () => {
+      if (!me) { toast('Connect a wallet first.', 'warn'); return; }
+      const { v, d, why } = rule();
+      if (v === null) { toast(why, 'warn'); return; }
+      if (v === 0n) { toast(`Nothing available: ${why}.`, 'warn'); return; }
+      const str = formatUnits(v, 18); input.value = d >= 18 ? str : trimTo(str, d);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    label.appendChild(b);
+  }
+}
+const trimTo = (str, d) => { const [i, f = ''] = str.split('.'); const frac = f.slice(0, d).replace(/0+$/, ''); return frac ? `${i}.${frac}` : i; };
+
+// ---------- show a token in the wallet (EIP-747) ----------
+const TOKENS = { oct: () => D.oct, wst: () => D.wstETH, usde: () => D.usde, stack: () => D.stack };
+async function watchAsset(key) {
+  const address = TOKENS[key]?.();
+  if (!window.ethereum) { toast('No wallet found.', 'bad'); return; }
+  if (isZero(address)) { toast('That token is not deployed on this chain.', 'bad'); return; }
+  try {
+    const symbol = await read(address, A.erc20Abi, 'symbol');
+    const added = await window.ethereum.request({ method: 'wallet_watchAsset', params: { type: 'ERC20', options: { address, symbol, decimals: 18 } } });
+    toast(added ? `${symbol} is now listed in your wallet.` : `Your wallet declined to list ${symbol}.`, added ? 'ok' : 'warn');
+  } catch (e) { toast(explain(e), 'bad'); }
 }
 
 // ---------- boot ----------
@@ -614,6 +665,8 @@ async function boot() {
   }
 
   $('btn-connect').addEventListener('click', connect);
+  wireMax();
+  document.querySelectorAll('[data-watch]').forEach((b) => b.addEventListener('click', () => watchAsset(b.dataset.watch)));
   $('form-open').addEventListener('submit', openVault);
   $('form-adjust').addEventListener('submit', adjustVault);
   $('in-coll').addEventListener('input', () => { collPreview(); openPreview(); });
@@ -650,7 +703,7 @@ async function boot() {
   $('btn-buy-lot').addEventListener('click', buyLot);
   $('btn-faucet-stack').addEventListener('click', () => { if (isZero(D.stack)) { toast('No test STACK on this chain.', 'bad'); return; } send('Mint test STACK', () => write(D.stack, A.wstAbi, 'mint', [me, 1000n * WAD])); });
   $('btn-sp-deposit').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Deposit to the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'provideToSP', [a])); });
-  $('btn-sp-withdraw').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Withdraw from the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [a])); });
+  $('btn-sp-withdraw').addEventListener('click', () => { const a = toWad($('sp-amount').value) || bal.spDep; if (a === 0n) { toast('Nothing deposited.', 'bad'); return; } send('Withdraw from the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [a])); });
   $('btn-sp-claim').addEventListener('click', () => send('Claim pool gain', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [0n])));
 
   if ($('heir-rows').children.length === 0) addHeirRow();

@@ -33,22 +33,34 @@
     <button id="btn-connect" class="btn btn-gold">Connect wallet</button>
   </div>
 </header>
+<script>
+  // the hero is one screen tall: tell the stylesheet how much the notice bar and the header take
+  (function () {
+    var bar = document.querySelector('.notice-bar'), head = document.querySelector('.site-header');
+    function fit() { document.documentElement.style.setProperty('--chrome', (bar.offsetHeight + head.offsetHeight) + 'px'); }
+    fit(); window.addEventListener('resize', fit); window.addEventListener('load', fit);
+  })();
+</script>
 
 <div class="hero-stage" id="top">
-  <picture>
-    <source media="(max-width: 720px)" srcset="assets/hero-tall.webp">
-    <img src="assets/hero-wide.webp" alt="The LegacyStack winged lion on a lit floor between two columns" class="hero-art" width="1900" height="800" fetchpriority="high">
-  </picture>
-</div>
-
-<main>
-
-<section class="hero">
+  <img src="assets/hero-stage.webp" alt="" class="hero-art" width="1672" height="941" fetchpriority="high">
+  <div class="hero-lion-wrap">
+    <div class="hero-aura" aria-hidden="true"></div>
+    <img src="assets/hero-lion.svg" alt="The LegacyStack winged lion" class="hero-lion" width="584" height="515" fetchpriority="high">
+    <div class="hero-reflection" aria-hidden="true"><img src="assets/hero-lion.svg" alt=""></div>
+  </div>
   <div class="hero-copy">
     <div class="wordmark">LegacyStack</div>
     <div class="tagline">Digital Wealth, Credit &amp; Inheritance</div>
     <div class="rule"><span></span><i></i><span></span></div>
     <h1>Grow. Borrow. Pass&nbsp;it&nbsp;on.</h1>
+  </div>
+</div>
+
+<main>
+
+<section class="hero">
+  <div class="hero-intro">
     <p class="lede">A fixed-rate credit line against your assets. No middleman: only you and an immutable contract. You keep the asset that grows, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
     <div class="hero-actions">
       <a class="btn btn-gold" href="#app">Open the testnet vault</a>
@@ -69,7 +81,7 @@
   <div class="section-head">
     <span class="eyebrow">The strategy</span>
     <h2>One asset, working four times</h2>
-    <p>Most people sell what grows to pay for what they need, and lose the growth. Family offices and private banks have always done the opposite: hold the asset, borrow against it, put the liquidity to work, hand the whole structure down. That playbook used to need a banker, a trust and a great deal of money. Here it needs a wallet. Each layer is money the same asset earns again, and the rules cannot be changed after the fact.</p>
+    <p>Most people sell what grows to pay for what they need, and lose the growth. Family offices and private banks have always done the opposite: hold the asset, borrow against it, put the liquidity to work, hand the whole structure down. That playbook used to need a banker, a trust and a great deal of money. Here it needs a wallet. Each layer is money the same asset earns again.</p>
   </div>
   <div class="moves">
     <article class="move">
@@ -116,7 +128,7 @@
     </article>
     <article class="mech-item">
       <h3>Price feed without keys</h3>
-      <p>The price of wstETH is ETH/USD times Lido's exchange rate, nothing else, with ETH/USD read from two oracle networks, Chainlink and Chronicle: both when they agree, the survivor when one dies. If the sources misbehave, the protocol goes into a reduce-only state: repaying, adding collateral, closing and liquidating at the last good price stay open; new risk waits. It heals by itself. Where the protocol pays for collateral, new loans and the reserve's offer, it never values wstETH above its market price. If every source is dead for thirty days, the deployment lends no more, forever, and still settles every estate.</p>
+      <p>ETH/USD from two oracle networks, Chainlink and Chronicle, times Lido's exchange rate: nothing else sets the price of wstETH. If the sources misbehave, the protocol goes reduce-only: repaying, adding collateral, closing and liquidating stay open at the last good price; new risk waits. It heals by itself.</p>
     </article>
     <article class="mech-item">
       <h3>Immutable rules</h3>
@@ -129,6 +141,7 @@
       <li>There is no middleman. The protocol holds no keys: nobody can freeze it, upgrade it, change the rate or take the collateral. It is you, the contract and the blockchain. Nobody can help you either: write your heirs down.</li>
       <li>Borrowing costs a 0.5% mint fee plus 1.5% a year. Redemptions carry a 0.75% minimum fee. Fees and interest feed the Redemption Reserve, which protects borrowers from redemptions and sets the lending limit.</li>
       <li>If your collateral ratio falls under 110%, your vault can be liquidated by anyone. Keep a margin; the dashboard shows your liquidation price at all times.</li>
+      <li>Where the protocol pays for collateral, in new loans and the reserve's offer, it never values wstETH above its market price. If every price source were dead for thirty days, the deployment would stop lending for good and still settle every estate.</li>
       <li>LegacyStack is software. It is not a bank, an insurer or an investment firm. This page is a test deployment of unaudited code on a test network: it teaches the mechanics and is not an offer, advice or a promise.</li>
     </ul>
   </div>
@@ -143,8 +156,8 @@
     <div class="stat"><span class="stat-label">wstETH price</span><span id="s-price" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Oracle</span><span id="s-oracle" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Your ETH</span><span id="s-eth" class="stat-value">—</span></div>
-    <div class="stat"><span class="stat-label">Your wstETH</span><span id="s-wst" class="stat-value">—</span></div>
-    <div class="stat"><span class="stat-label">Your OCT</span><span id="s-oct" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Your wstETH</span><span id="s-wst" class="stat-value">—</span><button type="button" class="watch" data-watch="wst">show in MetaMask</button></div>
+    <div class="stat"><span class="stat-label">Your OCT</span><span id="s-oct" class="stat-value">—</span><button type="button" class="watch" data-watch="oct">show in MetaMask</button></div>
   </div>
 
   <div class="grid-2">
@@ -231,6 +244,7 @@
       <button id="btn-faucet" class="btn btn-ghost">Mint 10 test wstETH</button>
       <button id="btn-faucet-usde" class="btn btn-ghost">Mint 10,000 test USDe</button>
     </div>
+    <p class="small watch-row">Show the test tokens in your wallet: <button type="button" class="watch" data-watch="wst">wstETH</button> <button type="button" class="watch" data-watch="usde">USDe</button> <button type="button" class="watch" data-watch="oct">OCT</button> <button type="button" class="watch" data-watch="stack">STACK</button></p>
   </div>
 </section>
 
@@ -397,6 +411,7 @@
       <div class="actions">
         <button class="btn btn-gold" type="button" id="btn-buy-lot">Buy the lot with STACK</button>
         <button class="btn btn-ghost" type="button" id="btn-faucet-stack">Mint 1,000 test STACK</button>
+        <button type="button" class="watch" data-watch="stack">show STACK in MetaMask</button>
       </div>
     </div>
   </div>

@@ -21,6 +21,8 @@ interface IBorrowerOperations {
     event TroveCreated(address indexed _borrower, uint arrayIndex);
     event TroveUpdated(address indexed _borrower, uint _debt, uint _coll, uint stake, uint8 operation);
     event LUSDBorrowingFeePaid(address indexed _borrower, uint _LUSDFee);
+    event AutoRepaySet(address indexed _borrower, uint8 _cadence);
+    event YieldSkimmed(address indexed _borrower, address indexed _caller, uint _collSold, uint _octBought, uint _repaid, uint _cut, uint _toOwner);
 
     // --- Functions ---
 
@@ -57,9 +59,19 @@ interface IBorrowerOperations {
 
     function claimCollateral() external;
 
-    // LegacyStack operator role (#129): an operator named by the owner adjusts the owner's vault. Deposits and
-    // repayments come from the operator; borrowed OCT and withdrawn collateral always go to the owner.
-    function operatorAdjustTrove(address _owner, uint _maxFee, uint _collWithdrawal, uint _debtChange, bool isDebtIncrease, address _upperHint, address _lowerHint, uint _collDeposit) external;
+    // LegacyStack (#161): anyone may add collateral to any active vault, from their own balance. A vault can
+    // only be made safer by a third party, never riskier, and nothing a third party does counts as life.
+    function addCollateralFor(address _owner, address _upperHint, address _lowerHint, uint _collAmount) external;
+
+    // LegacyStack auto-repay from staking rewards (#160, #161). The owner opts in with a cadence: 0 off,
+    // 1 monthly, 2 quarterly, 3 yearly. skimYield sells exactly the wstETH that Lido's rate growth added
+    // since the vault's baseline to the reserve's standing offer and repays the vault with the OCT. The owner
+    // may skim at any time with no cut; anyone else only once per cadence period, only when the yield covers
+    // the period's interest, and keeps 1% of the OCT, capped at 5 OCT. The vault's stETH-denominated collateral
+    // never falls below its baseline, and the ratio can only improve.
+    function setAutoRepay(uint8 _cadence) external;
+    function skimYield(address _owner, address _upperHint, address _lowerHint) external;
+    function autoRepay(address _owner) external view returns (uint8 cadence, uint64 lastSkim, uint baseline);
 
     // LegacyStack succession: surplus collateral of the owner sent to the registry. Registry only.
     function claimCollateralForSuccession(address _owner, address _to) external;

@@ -110,7 +110,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
     // Trove debt, pool debt and L_LUSDDebt are stored in NORMALIZED units; actual debt = normalized * rateIndex / 1e18.
     // The index grows at RATE_PER_YEAR (simple accrual per update). Accrued interest is minted as OCT to the
     // interest recipient (the Redemption Buffer; Phase 0: fee sink) so that total supply always covers total debt.
-    uint constant public RATE_PER_YEAR = 15 * 10**15;       // 1.5% per year, fixed for the life of the deployment
+    uint constant public override RATE_PER_YEAR = 15 * 10**15; // 1.5% per year, fixed for the life of the deployment
     uint constant internal SECONDS_PER_YEAR = 31536000;
     uint public rateIndex = DECIMAL_PRECISION;             // starts at 1.0
     uint public lastRateUpdate;

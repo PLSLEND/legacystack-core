@@ -129,6 +129,7 @@ interface ITroveManager is ILiquityBase {
     // LegacyStack: fixed-rate index
     function currentRateIndex() external view returns (uint);
     function accrueInterest() external;
+    function RATE_PER_YEAR() external view returns (uint);
 
     function getTroveColl(address _borrower) external view returns (uint);
 

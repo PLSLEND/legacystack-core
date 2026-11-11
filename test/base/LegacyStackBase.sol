@@ -36,7 +36,7 @@ interface IBO {
     function withdrawColl(uint,address,address) external;
     function addColl(address,address,uint) external;
     function adjustTrove(uint,uint,uint,bool,address,address,uint) external;
-    function operatorAdjustTrove(address,uint,uint,uint,bool,address,address,uint) external;
+    function addCollateralFor(address,address,address,uint) external;
     function claimCollateral() external;
 }
 interface ISP {
@@ -58,8 +58,17 @@ interface IPriceT { function setPrice(uint) external returns (bool); function ge
 interface IMockWst { function mint(address,uint) external; function approve(address,uint) external returns (bool); function balanceOf(address) external view returns (uint); function setStEthPerToken(uint) external; function stEthPerToken() external view returns (uint); function transfer(address,uint) external returns (bool); }
 interface IERC20L { function balanceOf(address) external view returns (uint); function totalSupply() external view returns (uint); function transfer(address,uint) external returns (bool); function approve(address,uint) external returns (bool); }
 interface IBuffer {
-    function setAddresses(address,address,address,address) external;
+    function setAddresses(address,address,address,address,address,address) external;
     function pot() external view returns (uint);
+    function ownPot() external view returns (uint);
+    function totalDeposits() external view returns (uint);
+    function depositOf(address) external view returns (uint);
+    function lockedUntil(address) external view returns (uint);
+    function pointsOf(address) external view returns (uint);
+    function releasable(uint) external view returns (uint);
+    function deposit(uint) external;
+    function withdraw(uint) external;
+    function checkpoint(address) external;
     function inventory() external view returns (uint);
     function potValue(uint) external view returns (uint);
     function circulatingSupply() external view returns (uint);
@@ -78,14 +87,11 @@ interface IRegistry {
     function setPlan(address[] calldata, uint16[] calldata, address) external;
     function clearPlan() external;
     function proveLife() external;
-    function setOperator(address,bool,bool,uint) external;
-    function touch(address) external;
     function getHeirs(address) external view returns (address[] memory, uint16[] memory);
     function getFallbackHeir(address) external view returns (address);
     function lastProof(address) external view returns (uint);
     function hasPlan(address) external view returns (bool);
     function successionState(address) external view returns (uint8, uint, uint);
-    function getOperator(address,address) external view returns (bool,bool,uint);
     function escrowOf(address,address) external view returns (uint);
     function estateOf(address) external view returns (uint,uint,bool);
     function execute(address) external;
@@ -119,7 +125,7 @@ contract LegacyStackBase is Test {
         issuance = deployCode("src/testnet/IssuanceStub.sol:IssuanceStub");
         oct = deployCode("LUSDToken.sol:LUSDToken", abi.encode(tm, sp, bo));
         wst = deployCode("src/testnet/MockWstETH.sol:MockWstETH");
-        buffer = deployCode("RedemptionBuffer.sol:RedemptionBuffer", abi.encode(surplusSink));
+        buffer = deployCode("RedemptionBuffer.sol:RedemptionBuffer");
         registry = deployCode("SuccessionRegistry.sol:SuccessionRegistry", abi.encode(uint(10), uint(0.02 ether)));
 
         ISorted(st).setParams(1_000_000, tm, bo);
@@ -130,7 +136,7 @@ contract LegacyStackBase is Test {
         IDP(dp).setAddresses(tm, ap, wst);
         ICSP(csp).setAddresses(bo, tm, ap, wst);
         IHintH(hh).setAddresses(st, tm);
-        IBuffer(buffer).setAddresses(tm, pf, oct, wst);
+        IBuffer(buffer).setAddresses(tm, bo, pf, oct, wst, surplusSink);
         IRegistry(registry).setAddresses(bo, tm, sp, csp, oct, wst);
         IPriceT(pf).setPrice(2000e18);
 

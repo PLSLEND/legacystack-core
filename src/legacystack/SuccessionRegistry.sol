@@ -18,10 +18,9 @@ import "../upstream/Dependencies/LiquityMath.sol";
 /*
 * Succession Registry. See ISuccessionRegistry for the rules. Ownable only for setAddresses, then renounced.
 *
-* Liveness: the clock resets on every owner-key action that reaches the protocol (vault open, adjust,
-* close, Stability Pool deposit or withdrawal, any registry call by the owner). Operator actions go
-* through a separate BorrowerOperations entry point and never reach touch(), so a keeper, an agent
-* or a delegate cannot keep a dead owner's vault alive.
+* Liveness: setPlan() starts the clock and proveLife() is the only call that resets it. Nothing the owner
+* does in the vault or the Stability Pool counts, and nothing anyone else does ever counts, so a keeper, an
+* agent or a bot cannot keep a dead owner's vault alive, and an owner is never kept alive by accident.
 *
 * Execution is idempotent and retryable: each call does as much as the available liquidity allows,
 * records what it holds for the estate, and finishes with the push once the vault is closed.
@@ -31,8 +30,8 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
 
     string constant public NAME = "SuccessionRegistry";
 
-    uint constant public PROOF_PERIOD = 365 days;     // one year without an owner-key action: plan is due
-    uint constant public RETURN_WINDOW = 30 days;     // then 30 days in which any owner-key action cancels
+    uint constant public PROOF_PERIOD = 365 days;     // one year without a proof of life: the plan is due
+    uint constant public RETURN_WINDOW = 30 days;     // then 30 days in which the owner's proof still cancels
     uint constant public MAX_HEIRS = 10;
     uint constant public BPS = 10000;
     uint public immutable REWARD_BPS;                 // executor reward, share of the collateral released
@@ -48,12 +47,6 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
     struct Heir {
         address account;
         uint16 bps;
-    }
-
-    struct OperatorRights {
-        bool active;
-        bool mayBorrow;
-        uint crFloor;
     }
 
     struct Plan {
@@ -72,7 +65,6 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
 
     mapping(address => Plan) internal plans;
     mapping(address => Estate) internal estates;
-    mapping(address => mapping(address => OperatorRights)) internal operators;
     mapping(address => mapping(address => uint)) internal escrow; // heir => token => amount
 
     constructor(uint _rewardBps, uint _rewardCap) public {
@@ -154,26 +146,6 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         _prove(msg.sender);
     }
 
-    function setOperator(address _operator, bool _active, bool _mayBorrow, uint _crFloor) external override {
-        require(_operator != address(0) && _operator != msg.sender, "SuccessionRegistry: bad operator");
-        if (_mayBorrow) {
-            require(_crFloor >= 1100000000000000000, "SuccessionRegistry: CR floor below 110%");
-        }
-        operators[msg.sender][_operator] = OperatorRights(_active, _mayBorrow, _crFloor);
-        if (plans[msg.sender].heirs.length > 0) { _returnEstate(msg.sender); _prove(msg.sender); }
-        emit OperatorSet(msg.sender, _operator, _active, _mayBorrow, _crFloor);
-    }
-
-    // --- Protocol hook ---
-
-    function touch(address _owner) external override {
-        require(msg.sender == address(borrowerOperations) || msg.sender == address(stabilityPool),
-            "SuccessionRegistry: caller is not the protocol");
-        if (plans[_owner].heirs.length == 0) { return; }
-        _returnEstate(_owner);
-        _prove(_owner);
-    }
-
     // --- Views ---
 
     function getHeirs(address _owner) external view override returns (address[] memory accounts, uint16[] memory bps) {
@@ -207,11 +179,6 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         if (block.timestamp < dueAt) { return (1, dueAt, executableAt); }
         if (block.timestamp < executableAt) { return (2, dueAt, executableAt); }
         return (3, dueAt, executableAt);
-    }
-
-    function getOperator(address _owner, address _operator) external view override returns (bool active, bool mayBorrow, uint crFloor) {
-        OperatorRights storage r = operators[_owner][_operator];
-        return (r.active, r.mayBorrow, r.crFloor);
     }
 
     function escrowOf(address _heir, address _token) external view override returns (uint) {

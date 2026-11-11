@@ -62,7 +62,7 @@
   <div class="glance-item"><span class="glance-value">110%</span><span class="glance-label">Minimum collateral ratio; your liquidation price is always on screen</span></div>
   <div class="glance-item"><span class="glance-value">0</span><span class="glance-label">Admin keys. No pause, no upgrade, no rate change, no one to ask</span></div>
   <div class="glance-item"><span class="glance-value inf">∞</span><span class="glance-label">Repayment schedule. Repay when you choose, in part or in full, or not at all while the ratio holds. No instalments, no maturity date</span></div>
-  <div class="glance-item"><span class="glance-value">1 year</span><span class="glance-label">Safety lock. Nothing moves while you are active; only a full year of silence, then thirty days of grace, can start a transfer</span></div>
+  <div class="glance-item"><span class="glance-value">1 year</span><span class="glance-label">Safety lock. One button, pressed once a year, keeps everything in place; only a full year of silence, then thirty days of grace, can start a transfer</span></div>
 </section>
 
 <section id="strategy" class="section">
@@ -93,7 +93,7 @@
     <article class="move">
       <div class="move-num">04 · It passes on</div>
       <h3>Pass it on</h3>
-      <p>Name up to ten heirs and their shares. Every action you take with your key is a sign of life. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault pays its own debt at par and delivers what remains directly into your heirs' wallets.</p>
+      <p>Name up to ten heirs and their shares. Once a year, press one button: that is your proof of life, and nothing else counts. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault pays its own debt at par and delivers what remains directly into your heirs' wallets.</p>
       <p class="move-note">No custodian, no paperwork, no death certificate. A clock, and a plan you can change at any time.</p>
     </article>
   </div>
@@ -116,7 +116,7 @@
     </article>
     <article class="mech-item">
       <h3>Price feed without keys</h3>
-      <p>The price of wstETH is Chainlink's ETH/USD times Lido's exchange rate, nothing else. If either source misbehaves, the protocol goes into a reduce-only state: repaying, adding collateral, closing and liquidating at the last good price stay open; new risk waits. It heals by itself.</p>
+      <p>The price of wstETH is ETH/USD times Lido's exchange rate, nothing else, with ETH/USD read from two oracle networks, Chainlink and Chronicle: both when they agree, the survivor when one dies. If the sources misbehave, the protocol goes into a reduce-only state: repaying, adding collateral, closing and liquidating at the last good price stay open; new risk waits. It heals by itself. Where the protocol pays for collateral, new loans and the reserve's offer, it never values wstETH above its market price. If every source is dead for thirty days, the deployment lends no more, forever, and still settles every estate.</p>
     </article>
     <article class="mech-item">
       <h3>Immutable rules</h3>
@@ -158,11 +158,20 @@
         <dt>Liquidation price</dt><dd id="v-liq">—</dd>
         <dt>Debt in front of you</dt><dd id="v-front">—</dd>
         <dt>Interest</dt><dd>1.5% a year, fixed</dd>
+        <dt>Auto-repay</dt><dd id="v-auto">—</dd>
+        <dt>Staking yield to skim</dt><dd id="v-yield">—</dd>
       </dl>
       <div class="actions">
         <button id="btn-close" class="btn btn-ghost" disabled>Repay everything and close</button>
         <button id="btn-claim-surplus" class="btn btn-ghost hidden">Claim leftover collateral</button>
       </div>
+      <form id="form-auto" class="hidden">
+        <p class="small">Auto-repay from staking rewards. On the schedule you choose, the yield your wstETH earned since the last check is sold to the reserve at par and the OCT repays your debt. Your collateral never drops below what you put in, measured in stETH; whoever runs it keeps 1% of the OCT, at most 5. You can skim yourself at any time, with no cut, and switch it off whenever you like.</p>
+        <div class="adjust-row">
+          <label>Schedule<select id="auto-cadence"><option value="0">Off</option><option value="1">Monthly</option><option value="2">Quarterly</option><option value="3">Yearly</option></select></label>
+          <div class="label-btn"><button type="submit" class="btn btn-ghost">Save schedule</button><button type="button" id="btn-skim" class="btn btn-ghost">Skim now</button></div>
+        </div>
+      </form>
     </div>
 
     <div class="box" id="open-box">
@@ -191,6 +200,8 @@
         <div class="step-pane hidden" id="pane-2">
           <label>OCT to borrow<input id="in-debt" type="number" step="any" min="0" placeholder="minimum 1,800"></label>
           <div class="preview" id="open-preview">Enter amounts to see the ratio, the fee and the liquidation price.</div>
+          <label>Auto-repay from staking rewards<select id="open-cadence"><option value="0">No, I repay when I choose</option><option value="1">Yes, monthly</option><option value="2" selected>Yes, quarterly</option><option value="3">Yes, yearly</option></select></label>
+          <p class="small">Yes means: on that schedule, the staking yield your wstETH earned is sold to the reserve at par and the OCT repays your debt. It is one more confirmation after the vault opens, and you can change or switch it off at any time.</p>
           <div class="actions">
             <button type="button" class="btn btn-ghost" data-next="1">Back</button>
             <button class="btn btn-gold" type="submit" id="btn-open">Open vault</button>
@@ -227,21 +238,21 @@
   <div class="section-head">
     <span class="eyebrow">Succession <em class="tag">testnet</em></span>
     <h2>Your plan</h2>
-    <p>One plan per wallet. It covers the vault, your Stability Pool deposit and any collateral left behind by a redemption. Shares are in percent and must add up to 100.</p>
+    <p>One plan per wallet. It covers the vault, your Stability Pool deposit and any collateral left behind by a redemption. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you.</p>
   </div>
   <div class="grid-2">
     <div class="box">
       <h3>Plan on record</h3>
       <dl class="kv">
         <dt>State</dt><dd id="p-state">—</dd>
-        <dt>Last sign of life</dt><dd id="p-last">—</dd>
+        <dt>Last proof of life</dt><dd id="p-last">—</dd>
         <dt>Due</dt><dd id="p-due">—</dd>
         <dt>Executable from</dt><dd id="p-exec">—</dd>
         <dt>Heirs</dt><dd id="p-heirs">—</dd>
         <dt>Fallback heir</dt><dd id="p-fallback">—</dd>
       </dl>
       <div class="actions">
-        <button id="btn-prove" class="btn btn-gold" disabled>I am here (prove life)</button>
+        <button id="btn-prove" class="btn btn-gold" disabled>I am here (proof of life)</button>
         <button id="btn-clear-plan" class="btn btn-ghost" disabled>Remove plan</button>
       </div>
     </div>
@@ -285,22 +296,21 @@
 
   <div class="grid-2">
     <div class="box">
-      <h3>Operator (optional)</h3>
-      <p class="small">An operator may add collateral and repay for you: a spouse, a keeper, an agent. If you allow it, it may also borrow and withdraw, always to your wallet, as long as the vault keeps the ratio floor you set. Operator actions never count as your sign of life, so a bot cannot keep a vault alive after its owner is gone.</p>
-      <form id="form-operator">
-        <label>Operator address<input id="op-addr" type="text" placeholder="0x…"></label>
-        <label class="check"><input id="op-active" type="checkbox" checked> Active</label>
-        <label class="check"><input id="op-borrow" type="checkbox"> May borrow and withdraw to me</label>
-        <label>Ratio floor for operator borrowing (%)<input id="op-floor" type="number" step="1" min="110" value="250"></label>
-        <button class="btn btn-ghost" type="submit">Save operator</button>
+      <h3>Help another vault</h3>
+      <p class="small">Anyone may add collateral to any vault, from their own wallet: a family member can make a vault safer during a crash while its owner is unreachable. It is the only thing a third party can do to a vault, it works even when the oracle is on hold, and it never counts as the owner's proof of life.</p>
+      <form id="form-gift">
+        <label>Vault owner<input id="gift-owner" type="text" placeholder="0x…"></label>
+        <label>wstETH to add<input id="gift-amount" type="number" step="0.01" min="0" placeholder="0.5"></label>
+        <button class="btn btn-ghost" type="submit">Add collateral</button>
       </form>
     </div>
     <div class="box">
       <h3>Keeper desk</h3>
-      <p class="small">The protocol has no staff. Whoever presses this button does the housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, and interest accrual and reserve releases on the way. One transaction does everything that is pending.</p>
+      <p class="small">The protocol has no staff. Whoever presses this button does the housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, 1% of the OCT (at most 5) for every auto-repay that is due, and interest accrual and reserve releases on the way. One transaction does everything that is pending.</p>
       <dl class="kv">
         <dt>Vaults to liquidate</dt><dd id="k-liq">—</dd>
         <dt>Estates to settle</dt><dd id="k-exe">—</dd>
+        <dt>Vaults to auto-repay</dt><dd id="k-skim">—</dd>
         <dt>Reward if run now</dt><dd id="k-reward">—</dd>
       </dl>
       <form id="form-execute">
@@ -317,13 +327,14 @@
   <div class="section-head">
     <span class="eyebrow">Redemption Reserve <em class="tag">testnet</em></span>
     <h2>The reserve</h2>
-    <p>Every fee and all interest end up here. Redemptions are served from the reserve first, so vaults are touched only when it is empty. The reserve also sets the lending limit.</p>
+    <p>Every fee and all interest end up here. Redemptions are served from the reserve first, so vaults are touched only when it is empty. The reserve also sets the lending limit. What it holds above its target flows out through a waterfall: half of the band up to twice the target and everything above it, at most 5% a day, split between the burn auction and protocol-owned liquidity.</p>
   </div>
   <div class="row-stats">
     <div class="stat"><span class="stat-label">Reserve</span><span id="b-pot" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Target</span><span id="b-target" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">OCT inventory</span><span id="b-inv" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Lending limit</span><span id="b-ceiling" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">Releasable today</span><span id="b-release" class="stat-value">—</span></div>
   </div>
   <div class="grid-3">
     <div class="box">
@@ -353,6 +364,42 @@
       </form>
     </div>
   </div>
+
+  <div class="grid-2">
+    <div class="box">
+      <h3>Reserve deposit</h3>
+      <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. It earns STACK for every day it serves, paid by the rewards contract while it holds any. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
+      <dl class="kv">
+        <dt>Your deposit</dt><dd id="rd-mine">—</dd>
+        <dt>Unlocks</dt><dd id="rd-unlock">—</dd>
+        <dt>Time served</dt><dd id="rd-points">—</dd>
+        <dt>STACK to claim</dt><dd id="rd-claim">—</dd>
+      </dl>
+      <form id="form-deposit">
+        <label>wstETH<input id="dep-amount" type="number" step="any" min="0" placeholder="1"></label>
+        <div class="actions">
+          <button class="btn btn-gold" type="submit" id="btn-deposit">Deposit</button>
+          <button class="btn btn-ghost" type="button" id="btn-withdraw">Withdraw</button>
+          <button class="btn btn-ghost" type="button" id="btn-claim-stack">Claim STACK</button>
+        </div>
+      </form>
+    </div>
+    <div class="box">
+      <h3>Burn auction</h3>
+      <p class="small">Half of what the waterfall releases is sold here for STACK, lot by lot, and the STACK is burned. The price starts high and falls over 48 hours to a tenth of its start, then holds until someone buys; the next lot starts at twice the last clearing price. No pool, no router, no keys: two tokens and a clock, so it works in any decade. The other half goes to the protocol-owned-liquidity keeper, which turns it into OCT through the standing offer and places it one-sided in the market pool when OCT trades at or above par.</p>
+      <dl class="kv">
+        <dt>On offer</dt><dd id="au-lot">—</dd>
+        <dt>Price now</dt><dd id="au-price">—</dd>
+        <dt>Burned so far</dt><dd id="au-burned">—</dd>
+        <dt>Waiting at the sink</dt><dd id="au-sink">—</dd>
+        <dt>Protocol-owned liquidity</dt><dd id="au-pol">—</dd>
+      </dl>
+      <div class="actions">
+        <button class="btn btn-gold" type="button" id="btn-buy-lot">Buy the lot with STACK</button>
+        <button class="btn btn-ghost" type="button" id="btn-faucet-stack">Mint 1,000 test STACK</button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <section id="pool" class="section panel">
@@ -365,7 +412,7 @@
     <div class="stat"><span class="stat-label">Pool size</span><span id="sp-total" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Share of OCT supply</span><span id="sp-share" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Collateral held for depositors</span><span id="sp-coll" class="stat-value">—</span></div>
-    <div class="stat"><span class="stat-label">STACK emissions</span><span id="sp-stack" class="stat-value">none on the testnet</span></div>
+    <div class="stat"><span class="stat-label">STACK emissions</span><span id="sp-stack" class="stat-value">with the token launch; the testnet pays reserve depositors only</span></div>
   </div>
   <div class="grid-2">
     <div class="box">

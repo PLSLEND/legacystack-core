@@ -9,7 +9,9 @@ pragma solidity 0.6.11;
 * recipient of all protocol revenue: OCT mint fees, OCT interest and wstETH redemption fees. OCT it
 * receives (fees, interest, redemptions it served) is held as inventory and sold back through a
 * standing offer at oracle par plus a fixed premium, which turns revenue into more wstETH in the pot.
-* Anyone may add to the pot; nobody has a claim on it. No admin.
+* Anyone may add to the pot without a claim (fill) or as a reserve deposit that stays theirs (deposit:
+* 180-day lock, withdrawable while the pot stays at target, time-served points for STACK emissions paid by
+* a periphery contract). No admin.
 */
 interface IRedemptionBuffer {
 
@@ -17,12 +19,17 @@ interface IRedemptionBuffer {
     event InventorySold(address indexed _buyer, uint _octOut, uint _collIn);
     event Filled(address indexed _from, uint _collAmount);
     event SurplusReleased(address indexed _to, uint _collAmount);
+    event SkimServed(address indexed _owner, uint _octOut, uint _collIn, uint _cut, uint _rest);
+    event Deposited(address indexed _depositor, uint _collAmount, uint _lockedUntil);
+    event Withdrawn(address indexed _depositor, uint _collAmount);
 
     function setAddresses(
         address _troveManagerAddress,
+        address _borrowerOperationsAddress,
         address _priceFeedAddress,
         address _octTokenAddress,
-        address _collateralTokenAddress
+        address _collateralTokenAddress,
+        address _surplusSink
     ) external;
 
     // --- Views ---
@@ -35,6 +42,14 @@ interface IRedemptionBuffer {
     function redeemCapacity(uint _price) external view returns (uint); // OCT the buffer can take now
     function debtCeiling(uint _price) external view returns (uint); // $1M + $100 per $1 in the pot
     function quoteInventory(uint _octAmount, uint _price) external view returns (uint collIn);
+    function offerPrice() external returns (uint);                  // the price the standing offer uses right now (refreshes the feed)
+    function OFFER_PREMIUM() external view returns (uint);
+    function ownPot() external view returns (uint);                 // wstETH that is the protocol's own
+    function totalDeposits() external view returns (uint);          // depositors' principal, in wstETH
+    function depositOf(address _depositor) external view returns (uint);
+    function lockedUntil(address _depositor) external view returns (uint);
+    function pointsOf(address _depositor) external view returns (uint); // wstETH-seconds served
+    function releasable(uint _price) external view returns (uint);  // what the waterfall could release, before the daily cap
 
     // --- Actions ---
 
@@ -45,9 +60,21 @@ interface IRedemptionBuffer {
     // Anyone: buy OCT from the inventory at oracle par + premium, paying wstETH.
     function buyInventory(uint _octAmount, uint _maxCollIn) external returns (uint collIn);
 
+    // BorrowerOperations only (auto-repay, #160/#161): a vault's staking yield has been moved from the Active
+    // Pool into the pot; sell _octAmount of inventory for it at the standing offer. _cut goes to the keeper,
+    // _rest to the vault owner, and the remainder is burned by BorrowerOperations against the vault's debt.
+    function serveSkim(address _owner, uint _octAmount, uint _collIn, address _cutTo, uint _cut, uint _rest) external;
+
     // Anyone: add wstETH to the pot. No claim is created.
     function fill(uint _collAmount) external;
 
-    // Anyone: when the pot is far above target, release a bounded slice to the surplus sink.
+    // Anyone: a reserve deposit. The wstETH stays the depositor's, serves redemptions like the rest of the
+    // pot, is locked 180 days from the last deposit and withdrawable afterwards whenever the pot stays at or
+    // above target after the withdrawal. Points (wstETH-seconds) accrue for the time served.
+    function deposit(uint _collAmount) external;
+    function withdraw(uint _collAmount) external;
+    function checkpoint(address _depositor) external;
+
+    // Anyone: release what the waterfall allows today to the surplus sink.
     function releaseSurplus() external returns (uint);
 }

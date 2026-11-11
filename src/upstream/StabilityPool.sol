@@ -151,7 +151,7 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
 
     ICommunityIssuance public communityIssuance;
 
-    ISuccessionRegistry public successionRegistry; // LegacyStack: liveness clock
+    ISuccessionRegistry public successionRegistry; // LegacyStack: succession (withdrawForSuccession)
     IERC20 public collateralToken; // LegacyStack: wstETH
 
     uint256 internal ETH;  // deposited ether tracker
@@ -308,7 +308,6 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     * - Increases deposit and takes new snapshots
     */
     function provideToSP(uint _amount) external override {
-        successionRegistry.touch(msg.sender);
         _requireNonZeroAmount(_amount);
 
         uint initialDeposit = deposits[msg.sender].initialValue;
@@ -344,7 +343,6 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     * If _amount > userDeposit, the user withdraws all of their compounded deposit.
     */
     function withdrawFromSP(uint _amount) external override {
-        successionRegistry.touch(msg.sender);
         if (_amount !=0) {_requireNoUnderCollateralizedTroves();}
         uint initialDeposit = deposits[msg.sender].initialValue;
         _requireUserHasDeposit(initialDeposit);
@@ -382,7 +380,6 @@ contract StabilityPool is LiquityBase, Ownable, CheckContract, IStabilityPool {
     * - Leaves their compounded deposit in the Stability Pool
     * - Updates snapshots for the deposit */
     function withdrawETHGainToTrove(address _upperHint, address _lowerHint) external override {
-        successionRegistry.touch(msg.sender);
         uint initialDeposit = deposits[msg.sender].initialValue;
         _requireUserHasDeposit(initialDeposit);
         _requireUserHasTrove(msg.sender);

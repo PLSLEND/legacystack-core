@@ -3,11 +3,11 @@ pragma solidity 0.8.28;
 
 import "../base/LegacyStackBase.sol";
 
-/// Succession Registry (LS_06 #129, #135, #136): liveness, heirs, operator role, settlement at par, push delivery.
+/// Succession Registry (LS_06 #129, #135, #136, #160, #161): button-only liveness, heirs, collateral gifts, settlement at par, push delivery.
 contract SuccessionTest is LegacyStackBase {
     address heir1 = address(0xE1); address heir2 = address(0xE2); address heir3 = address(0xE3);
     address fallbackHeir = address(0xFA11);
-    address operator = address(0x0B);
+    address helper = address(0x0B);   // a family member or keeper with its own wallet
     address keeper = address(0xBEEF);
     uint PROOF; uint WINDOW;
 
@@ -16,8 +16,8 @@ contract SuccessionTest is LegacyStackBase {
         vm.warp(1_700_000_000);
         PROOF = IRegistry(registry).PROOF_PERIOD();
         WINDOW = IRegistry(registry).RETURN_WINDOW();
-        IMockWst(wst).mint(operator, 100 ether);
-        vm.prank(operator); IMockWst(wst).approve(bo, type(uint).max);
+        IMockWst(wst).mint(helper, 100 ether);
+        vm.prank(helper); IMockWst(wst).approve(bo, type(uint).max);
     }
 
     function _plan(address owner) internal {
@@ -53,24 +53,25 @@ contract SuccessionTest is LegacyStackBase {
 
     // --- liveness ---
 
-    function test_ownerActionsResetTheClockOperatorActionsDoNot() public {
+    function test_onlyTheProofOfLifeButtonResetsTheClock() public {
         _plan(alice);
         uint t0 = IRegistry(registry).lastProof(alice);
-        assertEq(t0, block.timestamp);
+        assertEq(t0, block.timestamp);                      // setting the plan starts the clock
         vm.warp(block.timestamp + 100 days);
-        _open(alice, 10 ether, 5000e18);            // owner-key action: resets
+        _open(alice, 10 ether, 5000e18);                    // the owner's own vault actions do not count
+        vm.prank(alice); IBO(bo).addColl(address(0), address(0), 1 ether);
+        vm.prank(alice); IBO(bo).repayLUSD(100e18, address(0), address(0));
+        vm.prank(alice); ISP(sp).provideToSP(1000e18);     // nor Stability Pool actions
+        vm.prank(alice); ISP(sp).withdrawFromSP(500e18);
+        assertEq(IRegistry(registry).lastProof(alice), t0);
+        vm.warp(block.timestamp + 100 days);
+        vm.prank(helper); IBO(bo).addCollateralFor(alice, address(0), address(0), 1 ether); // nor anyone else's
+        assertEq(IRegistry(registry).lastProof(alice), t0);
+        vm.warp(block.timestamp + 100 days);
+        vm.prank(alice); IRegistry(registry).proveLife();  // only the button
         assertEq(IRegistry(registry).lastProof(alice), block.timestamp);
         vm.warp(block.timestamp + 100 days);
-        vm.prank(alice); IRegistry(registry).setOperator(operator, true, false, 0); // resets too
-        uint t1 = IRegistry(registry).lastProof(alice);
-        assertEq(t1, block.timestamp);
-        vm.warp(block.timestamp + 100 days);
-        vm.prank(operator); IBO(bo).operatorAdjustTrove(alice, 0, 0, 0, false, address(0), address(0), 1 ether); // never resets
-        assertEq(IRegistry(registry).lastProof(alice), t1);
-        (, uint coll,,) = ITM(tm).getEntireDebtAndColl(alice);
-        assertEq(coll, 11 ether);
-        vm.warp(block.timestamp + 100 days);
-        vm.prank(alice); ISP(sp).provideToSP(1000e18); // Stability Pool action by the owner: resets
+        _plan(alice);                                       // or a new plan
         assertEq(IRegistry(registry).lastProof(alice), block.timestamp);
     }
 
@@ -89,43 +90,31 @@ contract SuccessionTest is LegacyStackBase {
         assertEq(_state(alice), 3);
     }
 
-    // --- operator rights ---
+    // --- collateral gifts (#161): anyone may make a vault safer, nobody may make it riskier ---
 
-    function test_operatorRights() public {
+    function test_anyoneMayAddCollateralNobodyMayDoAnythingElse() public {
         _open(alice, 10 ether, 5000e18);
-        vm.prank(alice); IRegistry(registry).setOperator(operator, true, false, 0);
-        // safer-only: add collateral and repay are fine
-        vm.prank(alice); IERC20L(oct).transfer(operator, 1000e18);
-        vm.prank(operator); IBO(bo).operatorAdjustTrove(alice, 0, 0, 500e18, false, address(0), address(0), 0);
-        (uint debt,,,) = ITM(tm).getEntireDebtAndColl(alice);
-        assertApproxEqAbs(debt, 5225e18 - 500e18, 1e6);
-        // no borrowing without the right
-        vm.prank(operator); vm.expectRevert(bytes("BorrowerOps: operator may only add collateral or repay"));
-        IBO(bo).operatorAdjustTrove(alice, 1e18, 0, 100e18, true, address(0), address(0), 0);
-        // bounded borrowing: within a 250% floor
-        vm.prank(alice); IRegistry(registry).setOperator(operator, true, true, 2.5e18);
-        uint aliceOct = IERC20L(oct).balanceOf(alice);
-        vm.prank(operator); IBO(bo).operatorAdjustTrove(alice, 1e18, 0, 1000e18, true, address(0), address(0), 0);
-        // the OCT went to the owner, not to the operator
-        assertEq(IERC20L(oct).balanceOf(alice), aliceOct + 1000e18);
-        assertEq(IERC20L(oct).balanceOf(operator), 500e18);
-        // 10 wstETH * 2000 = 20,000 against 5,730 debt = 349%; borrowing 3,000 more would be 229% < 250%
-        vm.prank(operator); vm.expectRevert(bytes("BorrowerOps: operator action would breach the owner's CR floor"));
-        IBO(bo).operatorAdjustTrove(alice, 1e18, 0, 3000e18, true, address(0), address(0), 0);
-        // withdrawn collateral goes to the owner
-        uint aliceWst = IMockWst(wst).balanceOf(alice);
-        vm.prank(operator); IBO(bo).operatorAdjustTrove(alice, 0, 1 ether, 0, false, address(0), address(0), 0);
-        assertEq(IMockWst(wst).balanceOf(alice), aliceWst + 1 ether);
-        // never close, never set heirs: no such entry points exist for operators
-        vm.prank(operator); vm.expectRevert(bytes("BorrowerOps: Trove does not exist or is closed"));
+        uint helperWst = IMockWst(wst).balanceOf(helper);
+        vm.prank(helper); IBO(bo).addCollateralFor(alice, address(0), address(0), 2 ether);
+        (, uint coll,,) = ITM(tm).getEntireDebtAndColl(alice);
+        assertEq(coll, 12 ether);                                       // the gift is in the vault
+        assertEq(IMockWst(wst).balanceOf(helper), helperWst - 2 ether); // paid by the helper
+        // a gift works in the reduce-only oracle state too: it is the rescue path
+        IPriceT(pf).setReduceOnly(true);
+        vm.prank(helper); IBO(bo).addCollateralFor(alice, address(0), address(0), 1 ether);
+        IPriceT(pf).setReduceOnly(false);
+        (, coll,,) = ITM(tm).getEntireDebtAndColl(alice);
+        assertEq(coll, 13 ether);
+        // nothing else: no gift to a closed vault, no zero gift
+        vm.prank(helper); vm.expectRevert(bytes("no open vault"));
+        IBO(bo).addCollateralFor(bob, address(0), address(0), 1 ether);
+        vm.prank(helper); vm.expectRevert(bytes("nothing to change"));
+        IBO(bo).addCollateralFor(alice, address(0), address(0), 0);
+        // no entry point lets a third party repay, borrow, withdraw or close: those act on msg.sender's own vault
+        vm.prank(helper); vm.expectRevert(bytes("no open vault"));
+        IBO(bo).withdrawColl(1 ether, address(0), address(0));
+        vm.prank(helper); vm.expectRevert(bytes("no open vault"));
         IBO(bo).closeTrove();
-        // a stranger is refused
-        vm.prank(carol); vm.expectRevert(bytes("BorrowerOps: caller is not the owner or an operator"));
-        IBO(bo).operatorAdjustTrove(alice, 0, 0, 0, false, address(0), address(0), 1 ether);
-        // revoked
-        vm.prank(alice); IRegistry(registry).setOperator(operator, false, false, 0);
-        vm.prank(operator); vm.expectRevert(bytes("BorrowerOps: caller is not the owner or an operator"));
-        IBO(bo).operatorAdjustTrove(alice, 0, 0, 0, false, address(0), address(0), 1 ether);
     }
 
     // --- execution ---
@@ -241,8 +230,11 @@ contract SuccessionTest is LegacyStackBase {
         assertEq(ITM(tm).getTroveStatus(alice), 1);
         (uint estOct,, bool spW) = IRegistry(registry).estateOf(alice);
         assertEq(estOct, 0); assertTrue(spW);
-        // alice is alive: any owner action resets the clock and clears the estate record
+        // alice is alive: a vault action does not help her (button-only liveness), the button does, and it
+        // clears the estate record
         vm.prank(alice); IBO(bo).addColl(address(0), address(0), 1 ether);
+        assertEq(_state(alice), 3);
+        vm.prank(alice); IRegistry(registry).proveLife();
         assertEq(_state(alice), 1);
         (,, bool spW2) = IRegistry(registry).estateOf(alice);
         assertFalse(spW2);
@@ -288,8 +280,40 @@ contract SuccessionTest is LegacyStackBase {
         _plan(alice);
         vm.warp(block.timestamp + PROOF + WINDOW);
         IPriceT(pf).setPrice(1300e18); // alice: 3,900 against 4,220 debt
-        vm.prank(keeper); vm.expectRevert(bytes("BorrowerOps: Vault is undercollateralized, liquidate instead"));
+        vm.prank(keeper); vm.expectRevert(bytes("under 110%: liquidate"));
         IRegistry(registry).execute(alice);
+        // between 100% and 110% the estate is a liquidation, never a settlement at par (KupiaSec, 10 Nov 2026)
+        IPriceT(pf).setPrice(1500e18); // alice: 4,500 against 4,220 debt = 106.6%
+        vm.prank(keeper); vm.expectRevert(bytes("under 110%: liquidate"));
+        IRegistry(registry).execute(alice);
+        IPriceT(pf).setPrice(1600e18); // 113.7%: settles
+        vm.prank(bob); ISP(sp).provideToSP(10000e18);
+        vm.prank(keeper); IRegistry(registry).execute(alice);
+        assertEq(ITM(tm).getTroveStatus(alice), 5);
+    }
+
+    function test_partialSettlementNeverLeavesADustVault() public {
+        _open(bob, 100 ether, 50000e18);
+        _open(alice, 10 ether, 2000e18);                 // net debt 2,010 after the fee: 210 above the minimum
+        _plan(alice);
+        vm.warp(block.timestamp + PROOF + WINDOW);
+        ITM(tm).accrueInterest();
+        _takeFromBuffer(bob, _inventory() - 1000e18);    // 1,000 OCT of inventory, no pool: a partial settlement
+        (uint debtBefore,,,) = ITM(tm).getEntireDebtAndColl(alice);
+        vm.prank(keeper); IRegistry(registry).execute(alice);
+        (uint debtAfter,,,) = ITM(tm).getEntireDebtAndColl(alice);
+        // only what keeps the vault at the 1,800 minimum is settled today
+        assertApproxEqAbs(debtAfter, 1800e18 + GAS_COMP, 1e6);
+        assertLt(debtBefore - debtAfter, 1000e18);
+        assertEq(ITM(tm).getTroveStatus(alice), 1);
+        // nothing more can be done until the whole rest can be settled at once
+        vm.prank(keeper); IRegistry(registry).execute(alice);
+        (uint debtAgain,,,) = ITM(tm).getEntireDebtAndColl(alice);
+        assertEq(debtAgain, debtAfter);
+        vm.prank(bob); ISP(sp).provideToSP(10000e18);
+        vm.prank(keeper); IRegistry(registry).execute(alice);
+        assertEq(ITM(tm).getTroveStatus(alice), 5);
+        _assertSupplyCoversDebt();
     }
 
     function test_settlementWaitsForAHealthyOracle() public {
@@ -298,7 +322,7 @@ contract SuccessionTest is LegacyStackBase {
         _plan(alice);
         vm.warp(block.timestamp + PROOF + WINDOW);
         IPriceT(pf).setReduceOnly(true);
-        vm.prank(keeper); vm.expectRevert(bytes("BorrowerOps: Succession waits for a healthy oracle"));
+        vm.prank(keeper); vm.expectRevert(bytes("succession waits for the oracle"));
         IRegistry(registry).execute(alice);
         IPriceT(pf).setReduceOnly(false);
         vm.prank(bob); ISP(sp).provideToSP(10000e18);
@@ -306,10 +330,8 @@ contract SuccessionTest is LegacyStackBase {
         assertEq(ITM(tm).getTroveStatus(alice), 5);
     }
 
-    function test_onlyProtocolCanTouchAndOnlyRegistryCanSettle() public {
-        vm.prank(carol); vm.expectRevert(bytes("SuccessionRegistry: caller is not the protocol"));
-        IRegistry(registry).touch(alice);
-        vm.prank(carol); vm.expectRevert(bytes("BorrowerOps: Caller is not the SuccessionRegistry"));
+    function test_onlyTheRegistryCanSettle() public {
+        vm.prank(carol); vm.expectRevert(bytes("not the SuccessionRegistry"));
         IBOSettle(bo).settleForSuccession(alice, 0);
         vm.prank(carol); vm.expectRevert(bytes("TM: Caller is not the BorrowerOperations contract"));
         ITMClose(tm).closeTroveBySuccession(alice);

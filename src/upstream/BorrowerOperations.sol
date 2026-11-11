@@ -10,11 +10,11 @@ import "./Interfaces/ICollSurplusPool.sol";
 import "./Interfaces/ISortedTroves.sol";
 import "../legacystack/Interfaces/IRedemptionBuffer.sol";
 import "../legacystack/Interfaces/ISuccessionRegistry.sol";
+import "../legacystack/Interfaces/IWstETH.sol";
 import "./Dependencies/LiquityBase.sol";
 import "./Dependencies/Ownable.sol";
 import "./Dependencies/CheckContract.sol";
 import "./Dependencies/IERC20.sol";
-import "./Dependencies/console.sol";
 
 contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOperations {
     string constant public NAME = "BorrowerOperations";
@@ -30,9 +30,16 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
     ICollSurplusPool collSurplusPool;
 
     IRedemptionBuffer public redemptionBuffer;      // LegacyStack: receives mint fees (OCT) and sets the debt ceiling
-    ISuccessionRegistry public successionRegistry;  // LegacyStack: liveness clock and operator rights
+    ISuccessionRegistry public successionRegistry;  // LegacyStack: succession settlement (the registry closes estates)
     IERC20 public collateralToken;                  // LegacyStack: wstETH
     address public redemptionBufferAddress;
+
+    // LegacyStack auto-repay from staking rewards (#160, #161). baseline = the vault's collateral in stETH
+    // units at its last sync (coll x Lido rate); the skimmable yield is whatever Lido's rate growth added on top.
+    struct AutoRepay { uint8 cadence; uint64 lastSkim; uint baseline; }
+    mapping(address => AutoRepay) public override autoRepay;
+    uint constant public SKIM_CUT_BPS = 100;        // the keeper's cut: 1% of the OCT bought ...
+    uint constant public SKIM_CUT_CAP = 5e18;       // ... and never more than 5 OCT
 
     ILUSDToken public lusdToken;
 
@@ -58,8 +65,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         uint newDebt;
         uint newColl;
         uint stake;
-        bool isOperator;
-        uint operatorCrFloor;
     }
 
     struct LocalVariables_openTrove {
@@ -86,8 +91,28 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         settleForSuccession
     }
 
+    struct LocalVariables_skim {
+        uint price;
+        uint rate;
+        uint coll;
+        uint debt;
+        uint collYield;
+        uint oct;
+        uint collIn;
+        uint cut;
+        uint repay;
+        uint toOwner;
+        uint maxRepay;
+        uint stake;
+        bool byOwner;
+        bool capped;
+    }
+
     struct LocalVariables_settle {
         uint price;
+        uint settlePrice;
+        uint liquidity;
+        uint toSettle;
         uint debt;
         uint coll;
         uint netDebt;
@@ -189,13 +214,12 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         ContractsCache memory contractsCache = ContractsCache(troveManager, activePool, lusdToken);
         LocalVariables_openTrove memory vars;
 
-        vars.price = priceFeed.fetchPrice();
+        vars.price = priceFeed.lowerOfMarket(priceFeed.fetchPrice());   // new risk is priced at the lower of canonical and market (#162)
         _requireOracleHealthy();
         bool isRecoveryMode = _checkRecoveryMode(vars.price);
 
         _requireValidMaxFeePercentage(_maxFeePercentage, isRecoveryMode);
         _requireTroveisNotActive(contractsCache.troveManager, msg.sender);
-        successionRegistry.touch(msg.sender);
 
         vars.LUSDFee;
         vars.netDebt = _LUSDAmount;
@@ -229,6 +253,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         contractsCache.troveManager.updateTroveRewardSnapshots(msg.sender);
         vars.stake = contractsCache.troveManager.updateStakeAndTotalStakes(msg.sender);
+        autoRepay[msg.sender].baseline = _collAmount.mul(_lidoRate()).div(DECIMAL_PRECISION);
 
         sortedTroves.insert(msg.sender, vars.NICR, _upperHint, _lowerHint);
         vars.arrayIndex = contractsCache.troveManager.addTroveOwnerToArray(msg.sender);
@@ -274,11 +299,10 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         _adjustTrove(msg.sender, _collDeposit, _collWithdrawal, _LUSDChange, _isDebtIncrease, _upperHint, _lowerHint, _maxFeePercentage);
     }
 
-    // LegacyStack operator role (#129): rights are checked inside _adjustTrove against the Succession Registry.
-    // Never resets the owner's liveness clock.
-    function operatorAdjustTrove(address _owner, uint _maxFeePercentage, uint _collWithdrawal, uint _LUSDChange, bool _isDebtIncrease, address _upperHint, address _lowerHint, uint _collDeposit) external override {
-        require(_owner != msg.sender, "BorrowerOps: use adjustTrove for your own vault");
-        _adjustTrove(_owner, _collDeposit, _collWithdrawal, _LUSDChange, _isDebtIncrease, _upperHint, _lowerHint, _maxFeePercentage);
+    // LegacyStack (#161): anyone may add collateral to any active vault, from their own balance. The only thing
+    // a third party can do to a vault is make it safer; it never counts as the owner's sign of life.
+    function addCollateralFor(address _owner, address _upperHint, address _lowerHint, uint _collAmount) external override {
+        _adjustTrove(_owner, _collAmount, 0, 0, false, _upperHint, _lowerHint, 0);
     }
 
     /*
@@ -294,7 +318,10 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         LocalVariables_adjustTrove memory vars;
 
         vars.price = priceFeed.fetchPrice();
-        if (_isDebtIncrease || _collWithdrawal > 0) { _requireOracleHealthy(); } // reduce-only state (#141)
+        if (_isDebtIncrease || _collWithdrawal > 0) {
+            _requireOracleHealthy();                                   // reduce-only state (#141)
+            vars.price = priceFeed.lowerOfMarket(vars.price);          // new risk at the lower of canonical and market (#162)
+        }
         bool isRecoveryMode = _checkRecoveryMode(vars.price);
 
         if (_isDebtIncrease) {
@@ -305,23 +332,13 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         _requireNonZeroAdjustment(_collDeposit, _collWithdrawal, _LUSDChange);
         _requireTroveisActive(contractsCache.troveManager, _borrower);
 
-        // Who may adjust: the owner (resets the liveness clock), the Stability Pool moving a collateral gain,
-        // or an operator named by the owner (never resets the clock; may only open risk if allowed, within the CR floor).
-        if (msg.sender == _borrower) {
-            successionRegistry.touch(_borrower);
-        } else if (msg.sender == stabilityPoolAddress) {
-            require(_collDeposit > 0 && _LUSDChange == 0 && _collWithdrawal == 0, "BorrowerOps: invalid Stability Pool adjustment");
-        } else {
-            (bool active, bool mayBorrow, uint crFloor) = successionRegistry.getOperator(_borrower, msg.sender);
-            require(active, "BorrowerOps: caller is not the owner or an operator");
-            if (_isDebtIncrease || _collWithdrawal > 0) {
-                require(mayBorrow, "BorrowerOps: operator may only add collateral or repay");
-                vars.isOperator = true;
-                vars.operatorCrFloor = crFloor;
-            }
+        // Who may adjust: the owner does anything; anyone else (the Stability Pool moving a collateral gain, a
+        // family member or a keeper adding collateral) may only add collateral from its own balance.
+        if (msg.sender != _borrower) {
+            require(_collDeposit > 0 && _LUSDChange == 0 && _collWithdrawal == 0, "others may only add collateral");
         }
 
-        contractsCache.troveManager.applyPendingRewards(_borrower);
+        _syncBaseline(contractsCache.troveManager, _borrower);
 
         // Get the collChange based on whether or not ETH was sent in the transaction
         (vars.collChange, vars.isCollIncrease) = _getCollChange(_collDeposit, _collWithdrawal);
@@ -344,7 +361,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         // Check the adjustment satisfies all conditions for the current system mode
         _requireValidAdjustmentInCurrentMode(isRecoveryMode, _collWithdrawal, _isDebtIncrease, vars);
-        if (vars.isOperator) { require(vars.newICR >= vars.operatorCrFloor, "BorrowerOps: operator action would breach the owner's CR floor"); }
         if (_isDebtIncrease) { _requireUnderDebtCeiling(vars.price, vars.netDebtChange); }
 
         // When the adjustment is a debt repayment, check it's a valid amount and that the payer (msg.sender) has enough OCT
@@ -355,6 +371,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         }
 
         (vars.newColl, vars.newDebt) = _updateTroveFromAdjustment(contractsCache.troveManager, _borrower, vars.collChange, vars.isCollIncrease, vars.netDebtChange, _isDebtIncrease);
+        _moveBaseline(_borrower, vars.collChange, vars.isCollIncrease);
         vars.stake = contractsCache.troveManager.updateStakeAndTotalStakes(_borrower);
 
         // Re-insert trove in to the sorted list
@@ -385,7 +402,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         ILUSDToken lusdTokenCached = lusdToken;
 
         _requireTroveisActive(troveManagerCached, msg.sender);
-        successionRegistry.touch(msg.sender);
         uint price = priceFeed.fetchPrice();
         _requireNotInRecoveryMode(price);
 
@@ -401,6 +417,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         troveManagerCached.removeStake(msg.sender);
         troveManagerCached.closeTrove(msg.sender);
+        delete autoRepay[msg.sender];
 
         emit TroveUpdated(msg.sender, 0, 0, 0, BorrowerOperation.closeTrove);
 
@@ -410,6 +427,124 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         // Send the collateral back to the user
         activePoolCached.sendETH(msg.sender, coll);
+    }
+
+    // --- LegacyStack auto-repay from staking rewards (#160, #161) ---
+
+    function setAutoRepay(uint8 _cadence) external override {
+        require(_cadence <= 3, "cadence 0-3");
+        AutoRepay storage a = autoRepay[msg.sender];
+        if (_cadence != 0 && a.cadence == 0) { a.lastSkim = uint64(block.timestamp); } // the first keeper skim is one period away
+        a.cadence = _cadence;
+        emit AutoRepaySet(msg.sender, _cadence);
+    }
+
+    /*
+    * Sell the vault's accrued staking yield to the reserve and repay the vault with the OCT. The yield is the
+    * wstETH that Lido's rate growth added above the baseline, so the vault's stETH-denominated collateral never
+    * falls below the baseline. The reserve pays par + its premium; the OCT burned here is debt that disappears
+    * without a market leg, and the wstETH stays in the reserve. Nothing moves if the reserve has no inventory.
+    */
+    function skimYield(address _owner, address _upperHint, address _lowerHint) external override {
+        ContractsCache memory c = ContractsCache(troveManager, activePool, lusdToken);
+        LocalVariables_skim memory v;
+        c.troveManager.accrueInterest();
+        _requireTroveisActive(c.troveManager, _owner);
+        v.price = priceFeed.fetchPrice();
+        _requireOracleHealthy();
+        _requireNotInRecoveryMode(v.price);
+
+        AutoRepay storage a = autoRepay[_owner];
+        v.byOwner = msg.sender == _owner;
+        if (!v.byOwner) {
+            require(a.cadence != 0, "auto-repay off");
+            require(block.timestamp >= uint(a.lastSkim).add(_period(a.cadence)), "not due yet");
+        }
+
+        _syncBaseline(c.troveManager, _owner);
+        v.rate = _lidoRate();
+        v.coll = c.troveManager.getTroveColl(_owner);
+        v.debt = c.troveManager.getTroveDebt(_owner);
+        v.collYield = _yieldAbove(v.coll, a.baseline, v.rate);
+        v.price = priceFeed.lowerOfMarket(v.price);                    // the reserve buys the yield at the offer price (#162)
+
+        // OCT the yield buys at the standing offer, capped by the inventory
+        v.oct = v.collYield.mul(v.price).div(DECIMAL_PRECISION.add(redemptionBuffer.OFFER_PREMIUM()));
+        require(v.oct > 0, "no yield yet");
+        uint inventory = redemptionBuffer.inventory();
+        if (v.oct > inventory) { v.oct = inventory; v.capped = true; }
+        require(v.oct > 0, "no inventory");
+        if (!v.byOwner) {
+            uint periodInterest = v.debt.mul(c.troveManager.RATE_PER_YEAR()).mul(_period(a.cadence)).div(365 days).div(DECIMAL_PRECISION);
+            require(v.oct >= periodInterest, "yield below interest");
+        }
+        v.collIn = redemptionBuffer.quoteInventory(v.oct, v.price);
+        assert(v.collIn <= v.collYield);
+
+        // Split: the keeper's cut, the repayment (never below the minimum net debt), the rest to the owner
+        v.cut = v.byOwner ? 0 : LiquityMath._min(v.oct.mul(SKIM_CUT_BPS).div(10000), SKIM_CUT_CAP);
+        v.repay = v.oct.sub(v.cut);
+        v.maxRepay = _getNetDebt(v.debt) > MIN_NET_DEBT ? _getNetDebt(v.debt).sub(MIN_NET_DEBT) : 0;
+        if (v.repay > v.maxRepay) { v.toOwner = v.repay.sub(v.maxRepay); v.repay = v.maxRepay; }
+
+        // Move the yield to the reserve, take the OCT, burn the repayment straight from the reserve's balance
+        c.troveManager.decreaseTroveColl(_owner, v.collIn);
+        c.activePool.sendETH(redemptionBufferAddress, v.collIn);
+        redemptionBuffer.serveSkim(_owner, v.oct, v.collIn, msg.sender, v.cut, v.toOwner);
+        if (v.repay > 0) {
+            _repayLUSD(c.activePool, c.lusdToken, redemptionBufferAddress, v.repay);
+            v.debt = c.troveManager.decreaseTroveDebt(_owner, v.repay);
+        }
+        v.coll = v.coll.sub(v.collIn);
+        _requireICRisAboveMCR(LiquityMath._computeCR(v.coll, v.debt, v.price));
+        // A full skim leaves the vault exactly at its baseline (rounded up by a wei of stETH, so no dust is ever
+        // read as yield); a skim capped by the inventory keeps the baseline, and the rest stays skimmable.
+        if (!v.capped) { a.baseline = v.coll.mul(v.rate).add(DECIMAL_PRECISION.sub(1)).div(DECIMAL_PRECISION); }
+
+        v.stake = c.troveManager.updateStakeAndTotalStakes(_owner);
+        sortedTroves.reInsert(_owner, LiquityMath._computeNominalCR(v.coll, v.debt), _upperHint, _lowerHint);
+        a.lastSkim = uint64(block.timestamp);
+
+        emit TroveUpdated(_owner, v.debt, v.coll, v.stake, BorrowerOperation.adjustTrove);
+        emit YieldSkimmed(_owner, msg.sender, v.collIn, v.oct, v.repay, v.cut, v.toOwner);
+    }
+
+    function _period(uint8 _cadence) internal pure returns (uint) {
+        if (_cadence == 1) { return 30 days; }
+        if (_cadence == 2) { return 91 days; }
+        return 365 days;
+    }
+
+    function _lidoRate() internal view returns (uint) {
+        return IWstETH(address(collateralToken)).stEthPerToken();
+    }
+
+    // wstETH above the baseline at the current rate: coll - baseline / rate
+    function _yieldAbove(uint _coll, uint _baseline, uint _rate) internal pure returns (uint) {
+        uint base = _baseline.mul(DECIMAL_PRECISION).div(_rate);
+        return _coll > base ? _coll.sub(base) : 0;
+    }
+
+    // Apply the vault's pending redistribution rewards and keep the baseline honest: collateral that arrived
+    // from a redistribution is not yield, and collateral that left outside BorrowerOperations (a redemption)
+    // cannot leave a baseline above the vault.
+    function _syncBaseline(ITroveManager _troveManager, address _borrower) internal {
+        uint gain = _troveManager.getPendingETHReward(_borrower);
+        _troveManager.applyPendingRewards(_borrower);
+        uint rate = _lidoRate();
+        AutoRepay storage a = autoRepay[_borrower];
+        uint baseline = a.baseline.add(gain.mul(rate).div(DECIMAL_PRECISION));
+        uint collValue = _troveManager.getTroveColl(_borrower).mul(rate).add(DECIMAL_PRECISION.sub(1)).div(DECIMAL_PRECISION);
+        a.baseline = baseline > collValue ? collValue : baseline;
+    }
+
+    // The owner's own deposits and withdrawals move the baseline with them, so they are never read as yield.
+    function _moveBaseline(address _borrower, uint _collChange, bool _isCollIncrease) internal {
+        if (_collChange == 0) { return; }
+        AutoRepay storage a = autoRepay[_borrower];
+        uint delta = _collChange.mul(_lidoRate()).div(DECIMAL_PRECISION);
+        if (_isCollIncrease) { a.baseline = a.baseline.add(delta); }
+        else { a.baseline = a.baseline > delta ? a.baseline.sub(delta) : 0; }
     }
 
     /**
@@ -441,40 +576,59 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         c.troveManager.accrueInterest();
         LocalVariables_settle memory v;
         v.price = priceFeed.fetchPrice();
-        require(!priceFeed.isReduceOnly(), "BorrowerOps: Succession waits for a healthy oracle");
+        if (!priceFeed.isWindDown()) { require(!priceFeed.isReduceOnly(), "succession waits for the oracle"); }
         c.troveManager.applyPendingRewards(_owner);
         v.debt = c.troveManager.getTroveDebt(_owner);
         v.coll = c.troveManager.getTroveColl(_owner);
         v.netDebt = v.debt.sub(LUSD_GAS_COMPENSATION);
-        require(_getUSDValue(v.coll, v.price) >= v.netDebt, "BorrowerOps: Vault is undercollateralized, liquidate instead");
+        // An estate under the liquidation line is liquidated like any vault, never settled at par (KupiaSec, 10 Nov 2026)
+        require(LiquityMath._computeCR(v.coll, v.debt, v.price) >= MCR, "under 110%: liquidate");
 
-        // 1. The estate's own OCT, held by the registry.
-        v.octUsed = LiquityMath._min(v.netDebt, _octAvailable);
-        if (v.octUsed > 0) {
-            _repayLUSD(c.activePool, c.lusdToken, msg.sender, v.octUsed);
-            v.netDebt = v.netDebt.sub(v.octUsed);
+        // The price the settlement pays collateral out at. End state (#160): the stale price with a 20% haircut,
+        // in the estate's disfavour, capped so that the collateral still covers the debt.
+        v.settlePrice = v.price;
+        if (priceFeed.isWindDown()) {
+            v.settlePrice = LiquityMath._max(v.price.mul(80).div(100), v.netDebt.mul(DECIMAL_PRECISION).div(v.coll).add(1));
         }
 
-        // 2. Redemption Buffer inventory at par.
-        v.fromBuffer = LiquityMath._min(v.netDebt, c.lusdToken.balanceOf(redemptionBufferAddress));
-        if (v.fromBuffer > 0) {
-            v.collOut = v.fromBuffer.mul(DECIMAL_PRECISION).div(v.price);
-            _repayLUSD(c.activePool, c.lusdToken, redemptionBufferAddress, v.fromBuffer);
-            c.activePool.sendETH(redemptionBufferAddress, v.collOut);
-            v.netDebt = v.netDebt.sub(v.fromBuffer);
-            v.collRemoved = v.collRemoved.add(v.collOut);
-        }
-
-        // 3. Stability Pool offset at par (the pool keeps its minimum balance).
+        // How much can be settled today: everything, or, if the liquidity is short, a partial amount that leaves
+        // the vault at or above the minimum net debt (never a dust vault in the list).
         v.spAvailable = IStabilityPool(stabilityPoolAddress).getTotalLUSDDeposits();
         v.spAvailable = v.spAvailable > 1e18 ? v.spAvailable.sub(1e18) : 0;
-        v.fromSP = LiquityMath._min(v.netDebt, v.spAvailable);
-        if (v.fromSP > 0) {
-            v.collOut = v.fromSP.mul(DECIMAL_PRECISION).div(v.price);
-            IStabilityPool(stabilityPoolAddress).offset(v.fromSP, v.collOut); // burns from the pool, decreases active debt, moves the collateral
-            v.netDebt = v.netDebt.sub(v.fromSP);
+        v.liquidity = _octAvailable.add(c.lusdToken.balanceOf(redemptionBufferAddress)).add(v.spAvailable);
+        if (v.liquidity >= v.netDebt) {
+            v.toSettle = v.netDebt;
+        } else {
+            v.toSettle = v.netDebt > MIN_NET_DEBT ? LiquityMath._min(v.liquidity, v.netDebt.sub(MIN_NET_DEBT)) : 0;
+            if (v.toSettle == 0) { return (0, false, 0); }
+        }
+
+        // 1. The estate's own OCT, held by the registry.
+        v.octUsed = LiquityMath._min(v.toSettle, _octAvailable);
+        if (v.octUsed > 0) {
+            _repayLUSD(c.activePool, c.lusdToken, msg.sender, v.octUsed);
+            v.toSettle = v.toSettle.sub(v.octUsed);
+        }
+
+        // 2. Redemption Buffer inventory at the settlement price.
+        v.fromBuffer = LiquityMath._min(v.toSettle, c.lusdToken.balanceOf(redemptionBufferAddress));
+        if (v.fromBuffer > 0) {
+            v.collOut = v.fromBuffer.mul(DECIMAL_PRECISION).div(v.settlePrice);
+            _repayLUSD(c.activePool, c.lusdToken, redemptionBufferAddress, v.fromBuffer);
+            c.activePool.sendETH(redemptionBufferAddress, v.collOut);
+            v.toSettle = v.toSettle.sub(v.fromBuffer);
             v.collRemoved = v.collRemoved.add(v.collOut);
         }
+
+        // 3. Stability Pool offset at the settlement price (the pool keeps its minimum balance).
+        v.fromSP = LiquityMath._min(v.toSettle, v.spAvailable);
+        if (v.fromSP > 0) {
+            v.collOut = v.fromSP.mul(DECIMAL_PRECISION).div(v.settlePrice);
+            IStabilityPool(stabilityPoolAddress).offset(v.fromSP, v.collOut); // burns from the pool, decreases active debt, moves the collateral
+            v.toSettle = v.toSettle.sub(v.fromSP);
+            v.collRemoved = v.collRemoved.add(v.collOut);
+        }
+        v.netDebt = v.netDebt.sub(v.octUsed).sub(v.fromBuffer).sub(v.fromSP);
 
         v.settled = v.octUsed.add(v.fromBuffer).add(v.fromSP);
         if (v.settled > 0) { c.troveManager.decreaseTroveDebt(_owner, v.settled); }
@@ -486,6 +640,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
             _repayLUSD(c.activePool, c.lusdToken, gasPoolAddress, LUSD_GAS_COMPENSATION);
             c.troveManager.removeStake(_owner);
             c.troveManager.closeTroveBySuccession(_owner);
+            delete autoRepay[_owner];
             c.activePool.sendETH(msg.sender, v.coll);
             emit TroveUpdated(_owner, 0, 0, 0, BorrowerOperation.settleForSuccession);
             return (v.octUsed, true, v.coll);
@@ -584,7 +739,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
     // Send ETH to Active Pool and increase its recorded ETH balance
     function _activePoolAddColl(IActivePool _activePool, uint _amount) internal {
-        require(collateralToken.transferFrom(msg.sender, address(_activePool), _amount), "BorrowerOps: collateral transferFrom failed");
+        require(collateralToken.transferFrom(msg.sender, address(_activePool), _amount), "collateral pull failed");
         _activePool.receiveCollateral(_amount);
     }
 
@@ -603,37 +758,37 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
     // --- 'Require' wrapper functions ---
 
     function _requireSingularCollChange(uint _collDeposit, uint _collWithdrawal) internal pure {
-        require(_collDeposit == 0 || _collWithdrawal == 0, "BorrowerOperations: Cannot withdraw and add coll");
+        require(_collDeposit == 0 || _collWithdrawal == 0, "withdraw or add, not both");
     }
 
     function _requireCallerIsBorrower(address _borrower) internal view {
-        require(msg.sender == _borrower, "BorrowerOps: Caller must be the borrower for a withdrawal");
+        require(msg.sender == _borrower, "not the owner");
     }
 
     function _requireNonZeroAdjustment(uint _collDeposit, uint _collWithdrawal, uint _LUSDChange) internal pure {
-        require(_collDeposit != 0 || _collWithdrawal != 0 || _LUSDChange != 0, "BorrowerOps: There must be either a collateral change or a debt change");
+        require(_collDeposit != 0 || _collWithdrawal != 0 || _LUSDChange != 0, "nothing to change");
     }
 
     function _requireTroveisActive(ITroveManager _troveManager, address _borrower) internal view {
         uint status = _troveManager.getTroveStatus(_borrower);
-        require(status == 1, "BorrowerOps: Trove does not exist or is closed");
+        require(status == 1, "no open vault");
     }
 
     function _requireTroveisNotActive(ITroveManager _troveManager, address _borrower) internal view {
         uint status = _troveManager.getTroveStatus(_borrower);
-        require(status != 1, "BorrowerOps: Trove is active");
+        require(status != 1, "Trove is active");
     }
 
     function _requireNonZeroDebtChange(uint _LUSDChange) internal pure {
-        require(_LUSDChange > 0, "BorrowerOps: Debt increase requires non-zero debtChange");
+        require(_LUSDChange > 0, "zero debt change");
     }
    
     function _requireNotInRecoveryMode(uint _price) internal view {
-        require(!_checkRecoveryMode(_price), "BorrowerOps: Operation not permitted during Recovery Mode");
+        require(!_checkRecoveryMode(_price), "not in Recovery Mode");
     }
 
     function _requireNoCollWithdrawal(uint _collWithdrawal) internal pure {
-        require(_collWithdrawal == 0, "BorrowerOps: Collateral withdrawal not permitted Recovery Mode");
+        require(_collWithdrawal == 0, "no withdrawals in Recovery Mode");
     }
 
     function _requireValidAdjustmentInCurrentMode 
@@ -673,58 +828,58 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
     }
 
     function _requireICRisAboveMCR(uint _newICR) internal pure {
-        require(_newICR >= MCR, "BorrowerOps: An operation that would result in ICR < MCR is not permitted");
+        require(_newICR >= MCR, "ratio would fall under 110%");
     }
 
     function _requireICRisAboveCCR(uint _newICR) internal pure {
-        require(_newICR >= CCR, "BorrowerOps: Operation must leave trove with ICR >= CCR");
+        require(_newICR >= CCR, "ratio must reach 150%");
     }
 
     function _requireNewICRisAboveOldICR(uint _newICR, uint _oldICR) internal pure {
-        require(_newICR >= _oldICR, "BorrowerOps: Cannot decrease your Trove's ICR in Recovery Mode");
+        require(_newICR >= _oldICR, "ratio must improve in Recovery");
     }
 
     function _requireNewTCRisAboveCCR(uint _newTCR) internal pure {
-        require(_newTCR >= CCR, "BorrowerOps: An operation that would result in TCR < CCR is not permitted");
+        require(_newTCR >= CCR, "system ratio under 150%");
     }
 
     function _requireAtLeastMinNetDebt(uint _netDebt) internal pure {
-        require (_netDebt >= MIN_NET_DEBT, "BorrowerOps: Trove's net debt must be greater than minimum");
+        require (_netDebt >= MIN_NET_DEBT, "debt under the minimum");
     }
 
     function _requireValidLUSDRepayment(uint _currentDebt, uint _debtRepayment) internal pure {
-        require(_debtRepayment <= _currentDebt.sub(LUSD_GAS_COMPENSATION), "BorrowerOps: Amount repaid must not be larger than the Trove's debt");
+        require(_debtRepayment <= _currentDebt.sub(LUSD_GAS_COMPENSATION), "repaying more than the debt");
     }
 
     function _requireCallerIsStabilityPool() internal view {
-        require(msg.sender == stabilityPoolAddress, "BorrowerOps: Caller is not Stability Pool");
+        require(msg.sender == stabilityPoolAddress, "not the Stability Pool");
     }
 
     function _requireCallerIsSuccessionRegistry() internal view {
-        require(msg.sender == address(successionRegistry), "BorrowerOps: Caller is not the SuccessionRegistry");
+        require(msg.sender == address(successionRegistry), "not the SuccessionRegistry");
     }
 
     // LegacyStack reduce-only state (#141): no new risk while the oracle is degraded
     function _requireOracleHealthy() internal view {
-        require(!priceFeed.isReduceOnly(), "BorrowerOps: Oracle degraded, only repay, add collateral and close are open");
+        require(!priceFeed.isReduceOnly(), "oracle degraded: reduce-only");
     }
 
     // LegacyStack debt ceiling (#105): $1M + $100 per $1 of wstETH in the Redemption Buffer
     function _requireUnderDebtCeiling(uint _price, uint _debtIncrease) internal view {
-        require(getEntireSystemDebt().add(_debtIncrease) <= redemptionBuffer.debtCeiling(_price), "BorrowerOps: Debt ceiling reached");
+        require(getEntireSystemDebt().add(_debtIncrease) <= redemptionBuffer.debtCeiling(_price), "Debt ceiling reached");
     }
 
      function _requireSufficientLUSDBalance(ILUSDToken _lusdToken, address _borrower, uint _debtRepayment) internal view {
-        require(_lusdToken.balanceOf(_borrower) >= _debtRepayment, "BorrowerOps: Caller doesnt have enough LUSD to make repayment");
+        require(_lusdToken.balanceOf(_borrower) >= _debtRepayment, "not enough OCT to repay");
     }
 
     function _requireValidMaxFeePercentage(uint _maxFeePercentage, bool _isRecoveryMode) internal pure {
         if (_isRecoveryMode) {
             require(_maxFeePercentage <= DECIMAL_PRECISION,
-                "Max fee percentage must less than or equal to 100%");
+                "max fee above 100%");
         } else {
             require(_maxFeePercentage >= BORROWING_FEE_FLOOR && _maxFeePercentage <= DECIMAL_PRECISION,
-                "Max fee percentage must be between 0.5% and 100%");
+                "max fee out of range");
         }
     }
 

@@ -11,7 +11,9 @@ import "../../src/upstream/Interfaces/IPriceFeed.sol";
 contract PriceFeedTestnet is IPriceFeed {
 
     uint256 private _price = 200 * 1e18;
+    uint256 private _market;        // 0: no market feed
     bool private _reduceOnly;
+    bool private _windDown;
 
     function getPrice() external view returns (uint256) {
         return _price;
@@ -27,7 +29,15 @@ contract PriceFeedTestnet is IPriceFeed {
     }
 
     function isReduceOnly() external view override returns (bool) {
-        return _reduceOnly;
+        return _reduceOnly || _windDown;
+    }
+
+    function isWindDown() external view override returns (bool) {
+        return _windDown;
+    }
+
+    function lowerOfMarket(uint256 _canonical) external view override returns (uint256) {
+        return _market != 0 && _market < _canonical ? _market : _canonical;
     }
 
     // the real PriceFeed's read-only view, used by the frontend and the Keeper desk
@@ -42,5 +52,13 @@ contract PriceFeedTestnet is IPriceFeed {
 
     function setReduceOnly(bool reduceOnly) external {
         _reduceOnly = reduceOnly;
+    }
+
+    function setMarketPrice(uint256 market) external {
+        _market = market;
+    }
+
+    function setWindDown(bool windDown) external {
+        _windDown = windDown;
     }
 }

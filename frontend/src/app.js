@@ -84,6 +84,12 @@ async function send(label, fn) {
 }
 const read = (address, abi, functionName, args = []) => pub.readContract({ address, abi, functionName, args });
 const write = (address, abi, functionName, args = []) => wallet.writeContract({ address, abi, functionName, args, account: me, chain: NET.chain });
+// Calls that wrap inner calls in try/catch (the Keeper desk, the POL keeper) fool gas estimation: an inner
+// call that runs out of gas is caught and the estimate comes back too low. Pad the estimate for those.
+const writePadded = async (address, abi, functionName, args = []) => {
+  const est = await pub.estimateContractGas({ address, abi, functionName, args, account: me });
+  return wallet.writeContract({ address, abi, functionName, args, account: me, chain: NET.chain, gas: (est * 3n) / 2n + 200000n });
+};
 
 // ---------- hints ----------
 async function insertHints(nicr) {
@@ -135,11 +141,13 @@ async function refresh() {
   try {
     [price, healthy] = await read(D.priceFeed, A.priceFeedAbi, 'peek');
     $('s-price').textContent = usd(price);
-    const reduceOnly = await read(D.priceFeed, A.priceFeedAbi, 'isReduceOnly');
-    $('s-oracle').textContent = healthy && !reduceOnly ? 'healthy' : 'degraded · reduce-only';
+    const [reduceOnly, windDown, borrowPrice] = await Promise.all([
+      read(D.priceFeed, A.priceFeedAbi, 'isReduceOnly'), read(D.priceFeed, A.priceFeedAbi, 'isWindDown').catch(() => false), read(D.priceFeed, A.priceFeedAbi, 'lowerOfMarket', [price]).catch(() => price),
+    ]);
+    $('s-oracle').textContent = windDown ? 'wind-down · this deployment lends no more' : healthy && !reduceOnly ? (borrowPrice < price ? `healthy · borrowing priced at ${usd(borrowPrice)} (stETH market discount)` : 'healthy') : 'degraded · reduce-only';
     $('s-oracle').style.color = healthy && !reduceOnly ? 'var(--ok)' : 'var(--warn)';
     await refreshSystem();
-    await Promise.all([refreshBuffer(), refreshPoolAndVault(), refreshSuccession(), refreshDesk(), refreshMarket(), networkBadge()]);
+    await Promise.all([refreshBuffer(), refreshPoolAndVault(), refreshSuccession(), refreshDesk(), refreshMarket(), refreshDeposit(), networkBadge()]);
     await refreshFlow();
   } catch (e) { console.error(e); toast(`Could not read the chain: ${explain(e)}`, 'bad'); }
 }
@@ -197,6 +205,42 @@ async function refreshBuffer() {
   $('b-inv').textContent = `${fmt(inv, 2)} OCT`;
   $('b-ceiling').textContent = `${usd(ceiling)} · used ${fmt(debt, 0)}`;
   $('rd-preview').textContent = `The reserve can serve ${fmt(cap, 0)} OCT right now; anything above that is redeemed from the riskiest vaults.`;
+  const [rel, last] = await Promise.all([read(D.redemptionBuffer, A.bufferAbi, 'releasable', [price]), read(D.redemptionBuffer, A.bufferAbi, 'lastRelease')]);
+  const own = await read(D.redemptionBuffer, A.bufferAbi, 'ownPot');
+  const cap5 = own / 20n; const today = rel < cap5 ? rel : cap5;
+  const due = Number(last) + 86400 <= Date.now() / 1000;
+  $('b-release').textContent = rel > 0n ? `${fmt(today, 4)} wstETH${due ? '' : ' (next release ' + date(Number(last) + 86400) + ')'}` : 'nothing above target';
+  await refreshSinks();
+}
+async function refreshSinks() {
+  if (isZero(D.burnAuction)) { $('au-lot').textContent = 'not deployed on this chain'; return; }
+  const [lot, aPrice, burned, empty, pending, pol] = await Promise.all([
+    read(D.burnAuction, A.auctionAbi, 'lot'), read(D.burnAuction, A.auctionAbi, 'price'), read(D.burnAuction, A.auctionAbi, 'totalBurned'),
+    read(D.burnAuction, A.auctionAbi, 'empty'), read(D.surplusSink, A.splitterAbi, 'pending'), read(D.surplusSink, A.splitterAbi, 'polKeeper'),
+  ]);
+  $('au-lot').textContent = !empty && lot > 0n ? `${fmt(lot, 4)} wstETH for ${fmt((lot * aPrice) / WAD, 2)} STACK` : 'nothing yet';
+  $('au-price').textContent = `${fmt(aPrice, 2)} STACK per wstETH`;
+  $('au-burned').textContent = `${fmt(burned, 2)} STACK`;
+  $('au-sink').textContent = pending > 0n ? `${fmt(pending, 4)} wstETH to split on the next desk run` : 'nothing';
+  $('btn-buy-lot').disabled = empty || lot === 0n;
+  if (pol.toLowerCase() === D.burnAuction.toLowerCase()) { $('au-pol').textContent = 'no market pool on this chain: both halves burn'; return; }
+  const [par, n, octIn, toAuction] = await Promise.all([
+    read(pol, A.polAbi, 'octAtOrAbovePar'), read(pol, A.polAbi, 'positionCount'), read(pol, A.polAbi, 'totalOctDeposited'), read(pol, A.polAbi, 'totalCollToAuction'),
+  ]);
+  const held = await read(D.wstETH, A.erc20Abi, 'balanceOf', [pol]);
+  $('au-pol').textContent = `${n} position${n === 1n ? '' : 's'}, ${fmt(octIn, 0)} OCT placed · ${fmt(held, 4)} wstETH waiting (${par ? 'OCT at or above par: deploys on the next run' : 'OCT below par: waiting'})${toAuction > 0n ? ` · ${fmt(toAuction, 4)} wstETH went to the auction when the pool failed` : ''}`;
+}
+async function refreshDeposit() {
+  if (!me) return;
+  const [mine, until, pts] = await Promise.all([
+    read(D.redemptionBuffer, A.bufferAbi, 'depositOf', [me]), read(D.redemptionBuffer, A.bufferAbi, 'lockedUntil', [me]), read(D.redemptionBuffer, A.bufferAbi, 'pointsOf', [me]),
+  ]);
+  $('rd-mine').textContent = `${fmt(mine, 4)} wstETH`;
+  $('rd-unlock').textContent = mine > 0n ? (Number(until) * 1000 <= Date.now() ? 'unlocked' : date(until)) : '—';
+  $('rd-points').textContent = `${fmt(pts / 86400n, 3)} wstETH-days`;
+  const claimable = isZero(D.reserveRewards) ? 0n : await read(D.reserveRewards, A.rewardsAbi, 'claimable', [me]);
+  $('rd-claim').textContent = `${fmt(claimable, 3)} STACK`;
+  $('btn-claim-stack').disabled = claimable === 0n;
 }
 
 async function refreshPoolAndVault() {
@@ -242,6 +286,15 @@ async function refreshPoolAndVault() {
   } else { $('v-front').textContent = '—'; }
   $('btn-close').disabled = !hasVault;
   $('btn-claim-surplus').classList.toggle('hidden', surplus === 0n);
+  $('form-auto').classList.toggle('hidden', !hasVault);
+  if (hasVault) {
+    const [cadence, lastSkim] = await read(D.borrowerOperations, A.borrowerOperationsAbi, 'autoRepay', [me]);
+    const names = ['off', 'monthly', 'quarterly', 'yearly'];
+    $('v-auto').textContent = cadence ? `${names[cadence]} · last run ${lastSkim ? date(lastSkim) : 'never'}` : 'off';
+    if ($('auto-cadence').value !== String(cadence) && document.activeElement !== $('auto-cadence')) $('auto-cadence').value = String(cadence);
+    const yieldWst = isZero(D.keeperDesk) ? 0n : await read(D.keeperDesk, A.keeperDeskAbi, 'skimmable', [me]);
+    $('v-yield').textContent = yieldWst > 0n ? `${fmt(yieldWst, 6)} wstETH ≈ ${usd((yieldWst * price) / WAD)}` : 'none yet';
+  } else { $('v-auto').textContent = '—'; $('v-yield').textContent = '—'; }
 }
 
 async function refreshSuccession() {
@@ -307,6 +360,7 @@ async function refreshDesk() {
     desk = await read(D.keeperDesk, A.keeperDeskAbi, 'pending', [60n]);
     $('k-liq').textContent = desk.liquidatable.length ? `${desk.liquidatable.length} (${desk.liquidatable.map(short).join(', ')})` : 'none';
     $('k-exe').textContent = desk.executable.length ? `${desk.executable.length} (${desk.executable.map(short).join(', ')})` : 'none';
+    $('k-skim').textContent = desk.skimmable.length ? `${desk.skimmable.length} (${desk.skimmable.map(short).join(', ')})` : 'none due';
     const any = desk.octReward > 0n || desk.collReward > 0n;
     $('k-reward').textContent = any ? `≈ ${fmt(desk.octReward, 0)} OCT + ${fmt(desk.collReward, 4)} wstETH` : 'interest accrual and reserve release only (no reward)';
     $('k-reward').style.color = any ? 'var(--gold-2)' : '';
@@ -319,8 +373,9 @@ async function runDesk(ev) {
   if (extra && !looksLikeAddress(extra)) { toast('That is not an address.', 'bad'); return; }
   const liq = desk ? [...desk.liquidatable] : [];
   const exe = desk ? [...desk.executable] : [];
+  const skim = desk ? [...desk.skimmable] : [];
   if (extra && !exe.map((a) => a.toLowerCase()).includes(extra.toLowerCase())) exe.push(addr(extra));
-  await send('Run the desk', () => write(D.keeperDesk, A.keeperDeskAbi, 'run', [liq, exe]));
+  await send('Run the desk', () => writePadded(D.keeperDesk, A.keeperDeskAbi, 'run', [liq, exe, skim]));
 }
 async function executePreview() {
   const a = $('ex-addr').value.trim(); const p = $('ex-preview'); p.className = 'preview';
@@ -402,7 +457,18 @@ async function openVault(ev) {
   const composite = debt + debt / 200n + GAS_COMP;
   const [upper, lower] = await insertHints(nominalCR(coll, composite));
   const rc = await send('Open vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'openTrove', [MAX_FEE, debt, upper, lower, coll]));
-  if (rc) { showStep(3); document.getElementById('succession').scrollIntoView({ behavior: 'smooth' }); }
+  if (!rc) return;
+  const cadence = Number($('open-cadence').value);
+  if (cadence) await send('Auto-repay from staking rewards', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'setAutoRepay', [cadence]));
+  showStep(3); document.getElementById('succession').scrollIntoView({ behavior: 'smooth' });
+}
+async function saveAutoRepay(ev) {
+  ev.preventDefault();
+  await send('Save the auto-repay schedule', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'setAutoRepay', [Number($('auto-cadence').value)]));
+}
+async function skimNow() {
+  if (!hasVault) return;
+  await send('Skim the staking yield', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'skimYield', [me, zeroAddress, zeroAddress]));
 }
 async function adjustVault(ev) {
   ev.preventDefault();
@@ -453,12 +519,14 @@ async function savePlan(ev) {
   if (fb && !looksLikeAddress(fb)) { toast('The fallback heir is not an address.', 'bad'); return; }
   await send('Save plan', () => write(D.successionRegistry, A.registryAbi, 'setPlan', [accounts.map(addr), bps, fb ? addr(fb) : zeroAddress]));
 }
-async function saveOperator(ev) {
+async function giftCollateral(ev) {
   ev.preventDefault();
-  const op = $('op-addr').value.trim();
-  if (!looksLikeAddress(op)) { toast('Enter the operator address.', 'bad'); return; }
-  const floor = parseUnits(String($('op-floor').value || '250'), 16);
-  await send('Save operator', () => write(D.successionRegistry, A.registryAbi, 'setOperator', [addr(op), $('op-active').checked, $('op-borrow').checked, floor]));
+  const owner = $('gift-owner').value.trim();
+  const amount = toWad($('gift-amount').value);
+  if (!looksLikeAddress(owner)) { toast('Enter the vault owner\'s address.', 'bad'); return; }
+  if (amount <= 0n) { toast('Enter the wstETH amount.', 'bad'); return; }
+  if (!(await ensureAllowance(D.borrowerOperations, amount, 'the vault'))) return;
+  await send('Add collateral to the vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'addCollateralFor', [addr(owner), zeroAddress, zeroAddress, amount]));
 }
 
 // ---------- buffer forms ----------
@@ -500,6 +568,26 @@ async function fillPot(ev) {
   if (amount === 0n) return;
   if (!(await ensureAllowance(D.redemptionBuffer, amount, 'the reserve'))) return;
   await send('Add to the reserve', () => write(D.redemptionBuffer, A.bufferAbi, 'fill', [amount]));
+}
+async function depositReserve(ev) {
+  ev.preventDefault();
+  const amount = toWad($('dep-amount').value);
+  if (amount === 0n) { toast('Enter the wstETH amount.', 'bad'); return; }
+  if (!(await ensureAllowance(D.redemptionBuffer, amount, 'the reserve'))) return;
+  await send('Reserve deposit', () => write(D.redemptionBuffer, A.bufferAbi, 'deposit', [amount]));
+}
+async function withdrawReserve() {
+  const amount = toWad($('dep-amount').value);
+  if (amount === 0n) { toast('Enter the wstETH amount to withdraw.', 'bad'); return; }
+  await send('Withdraw the deposit', () => write(D.redemptionBuffer, A.bufferAbi, 'withdraw', [amount]));
+}
+async function buyLot() {
+  const cost = await read(D.burnAuction, A.auctionAbi, 'cost');
+  const bal = await read(D.stack, A.erc20Abi, 'balanceOf', [me]);
+  if (bal < cost) { toast(`The lot costs ${fmt(cost, 2)} STACK; you hold ${fmt(bal, 2)}.`, 'bad'); return; }
+  const allowance = await read(D.stack, A.erc20Abi, 'allowance', [me, D.burnAuction]);
+  if (allowance < cost) { const rc = await send('Approve STACK', () => write(D.stack, A.erc20Abi, 'approve', [D.burnAuction, 2n ** 256n - 1n])); if (!rc) return; }
+  await send('Buy the lot', () => write(D.burnAuction, A.auctionAbi, 'buy', [(cost * 102n) / 100n]));
 }
 
 // ---------- boot ----------
@@ -545,15 +633,22 @@ async function boot() {
   $('btn-add-heir').addEventListener('click', () => addHeirRow());
   $('form-plan').addEventListener('submit', savePlan);
   $('btn-skip-plan').addEventListener('click', () => { planSkipped = true; refreshFlow(); toast('Plan skipped. The alert stays until heirs are named.', 'warn'); });
-  $('btn-prove').addEventListener('click', () => send('Prove life', () => write(D.successionRegistry, A.registryAbi, 'proveLife')));
+  $('btn-prove').addEventListener('click', () => send('Proof of life', () => write(D.successionRegistry, A.registryAbi, 'proveLife')));
   $('btn-clear-plan').addEventListener('click', () => send('Remove plan', () => write(D.successionRegistry, A.registryAbi, 'clearPlan')));
-  $('form-operator').addEventListener('submit', saveOperator);
+  $('form-gift').addEventListener('submit', giftCollateral);
+  $('form-auto').addEventListener('submit', saveAutoRepay);
+  $('btn-skim').addEventListener('click', skimNow);
   $('form-execute').addEventListener('submit', runDesk);
   $('ex-addr').addEventListener('input', () => executePreview().catch(() => {}));
   $('form-redeem').addEventListener('submit', redeem);
   $('form-buy').addEventListener('submit', buyInventory);
   $('buy-amount').addEventListener('input', () => buyPreview().catch(() => {}));
   $('form-fill').addEventListener('submit', fillPot);
+  $('form-deposit').addEventListener('submit', depositReserve);
+  $('btn-withdraw').addEventListener('click', withdrawReserve);
+  $('btn-claim-stack').addEventListener('click', () => send('Claim STACK', () => write(D.reserveRewards, A.rewardsAbi, 'claim')));
+  $('btn-buy-lot').addEventListener('click', buyLot);
+  $('btn-faucet-stack').addEventListener('click', () => { if (isZero(D.stack)) { toast('No test STACK on this chain.', 'bad'); return; } send('Mint test STACK', () => write(D.stack, A.wstAbi, 'mint', [me, 1000n * WAD])); });
   $('btn-sp-deposit').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Deposit to the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'provideToSP', [a])); });
   $('btn-sp-withdraw').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Withdraw from the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [a])); });
   $('btn-sp-claim').addEventListener('click', () => send('Claim pool gain', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [0n])));

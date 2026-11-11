@@ -17,5 +17,13 @@ interface IPriceFeed {
     // at the last good price stay open.
     function isReduceOnly() external view returns (bool);
 
+    // LegacyStack #160: the permanent end state (every ETH/USD source dead for 30 days). Reduce-only forever;
+    // succession settles at the last good price with a haircut applied by BorrowerOperations.
+    function isWindDown() external view returns (bool);
+
+    // LegacyStack #162: the lower of the canonical price and the stETH/USD market price times the rate, for
+    // the paths where the protocol pays for collateral (new borrowing, withdrawals, the standing offer).
+    function lowerOfMarket(uint _canonical) external view returns (uint);
+
     function lastGoodPrice() external view returns (uint);
 }

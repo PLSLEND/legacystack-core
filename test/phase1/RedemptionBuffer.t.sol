@@ -114,12 +114,12 @@ contract RedemptionBufferTest is LegacyStackBase {
         assertEq(IBuffer(buffer).debtCeiling(price), 1_000_000e18);
         // give alice enough collateral to try to borrow past $1M
         IMockWst(wst).mint(alice, 2000 ether);
-        vm.prank(alice); vm.expectRevert(bytes("BorrowerOps: Debt ceiling reached"));
+        vm.prank(alice); vm.expectRevert(bytes("Debt ceiling reached"));
         IBO(bo).openTrove(1e18, 1_000_000e18, address(0), address(0), 1500 ether);
         // 990,000 fits (990,000 + 4,950 fee + 200 gas comp < 1,000,000)
         vm.prank(alice); IBO(bo).openTrove(1e18, 990_000e18, address(0), address(0), 1500 ether);
         // a further 10,000 does not
-        vm.prank(alice); vm.expectRevert(bytes("BorrowerOps: Debt ceiling reached"));
+        vm.prank(alice); vm.expectRevert(bytes("Debt ceiling reached"));
         IBO(bo).withdrawLUSD(1e18, 10_000e18, address(0), address(0));
         // $20,000 in the pot lifts the ceiling by $2,000,000
         vm.prank(carol); IBuffer(buffer).fill(10 ether);
@@ -128,27 +128,68 @@ contract RedemptionBufferTest is LegacyStackBase {
         _assertSupplyCoversDebt();
     }
 
-    function test_targetAndSurplusRelease() public {
+    function test_targetAndSurplusWaterfall() public {
         _open(alice, 10 ether, 5000e18);
         _open(bob, 10 ether, 5000e18);
         // circulating supply excludes the inventory; target is 15% of it in USD
         uint circulating = IBuffer(buffer).circulatingSupply();
         assertEq(circulating, 10400e18); // 10,000 borrowed + 400 gas compensation in the Gas Pool; 50 of fees excluded
         assertEq(IBuffer(buffer).target(), 1560e18);
-        // nothing to release below 200% of target ($3,120 = 1.56 wstETH)
-        vm.prank(carol); IBuffer(buffer).fill(1 ether);
+        uint price = _price();
+        // below target: nothing
+        assertEq(IBuffer(buffer).releasable(price), 0);
         vm.warp(block.timestamp + 2 days);
-        vm.expectRevert(bytes("RedemptionBuffer: pot not above release threshold"));
+        vm.expectRevert(bytes("RedemptionBuffer: nothing to release"));
         IBuffer(buffer).releaseSurplus();
-        // far above: release capped at 5% of the pot per day
-        vm.prank(carol); IBuffer(buffer).fill(99 ether); // pot 100 wstETH = $200,000
+        // inside the 100-200% band: half of the band is releasable, 5% of the own pot per day
+        vm.prank(carol); IBuffer(buffer).fill(1 ether);          // $2,000 against a $1,560 target: band $440
+        assertEq(IBuffer(buffer).releasable(price), 220e18 * 1e18 / price);
         uint released = IBuffer(buffer).releaseSurplus();
-        assertEq(released, 5 ether);
-        assertEq(IMockWst(wst).balanceOf(surplusSink), 5 ether);
+        assertEq(released, 0.05 ether);
+        assertEq(IMockWst(wst).balanceOf(surplusSink), 0.05 ether);
         vm.expectRevert(bytes("RedemptionBuffer: one release per day"));
         IBuffer(buffer).releaseSurplus();
+        // far above: half the band plus everything above 200%, still capped at 5% a day
+        vm.prank(carol); IBuffer(buffer).fill(99.05 ether);     // own pot 100 wstETH = $200,000
+        assertEq(IBuffer(buffer).releasable(price), (780e18 + 196_880e18) * 1e18 / price);
+        vm.warp(block.timestamp + 1 days);
+        assertEq(IBuffer(buffer).releaseSurplus(), 5 ether);
         vm.warp(block.timestamp + 1 days);
         assertEq(IBuffer(buffer).releaseSurplus(), 95 ether * 5 / 100);
+    }
+
+    function test_reserveDepositsStayTheDepositorsAndNeverFeedTheWaterfall() public {
+        _open(alice, 10 ether, 5000e18);
+        _open(bob, 10 ether, 5000e18);
+        uint price = _price();
+        vm.prank(carol); IBuffer(buffer).deposit(10 ether);
+        assertEq(IBuffer(buffer).pot(), 10 ether);
+        assertEq(IBuffer(buffer).ownPot(), 0);
+        assertEq(IBuffer(buffer).totalDeposits(), 10 ether);
+        assertEq(IBuffer(buffer).depositOf(carol), 10 ether);
+        assertEq(IBuffer(buffer).releasable(price), 0);               // deposits are not surplus
+        assertEq(IBuffer(buffer).debtCeiling(price), 1_000_000e18 + 2_000_000e18); // but they do lift the ceiling
+        // locked for 180 days from the last deposit
+        vm.warp(block.timestamp + 100 days);
+        vm.prank(carol); vm.expectRevert(bytes("RedemptionBuffer: deposit still locked"));
+        IBuffer(buffer).withdraw(1 ether);
+        vm.prank(carol); IBuffer(buffer).deposit(1 ether);          // extends the lock
+        vm.warp(block.timestamp + 100 days);
+        vm.prank(carol); vm.expectRevert(bytes("RedemptionBuffer: deposit still locked"));
+        IBuffer(buffer).withdraw(1 ether);
+        vm.warp(block.timestamp + 80 days);
+        // points: 10 wstETH for 100 days, then 11 wstETH for 180 days (wstETH-seconds)
+        assertEq(IBuffer(buffer).pointsOf(carol), 10 ether * 100 days + 11 ether * 180 days);
+        // withdrawable only while the pot stays at or above target ($1,560 = 0.78 wstETH)
+        vm.prank(carol); vm.expectRevert(bytes("RedemptionBuffer: the pot would fall below target"));
+        IBuffer(buffer).withdraw(11 ether);
+        uint before = IMockWst(wst).balanceOf(carol);
+        vm.prank(carol); IBuffer(buffer).withdraw(10 ether);
+        assertEq(IMockWst(wst).balanceOf(carol), before + 10 ether);
+        assertEq(IBuffer(buffer).depositOf(carol), 1 ether);
+        assertEq(IBuffer(buffer).totalDeposits(), 1 ether);
+        vm.prank(carol); vm.expectRevert(bytes("RedemptionBuffer: more than deposited"));
+        IBuffer(buffer).withdraw(2 ether);
     }
 
     function test_onlyTroveManagerCanServe() public {

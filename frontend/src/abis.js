@@ -24,7 +24,10 @@ export const troveManagerAbi = parseAbi([
 export const borrowerOperationsAbi = parseAbi([
   'function openTrove(uint256 maxFee, uint256 octAmount, address upperHint, address lowerHint, uint256 collAmount)',
   'function adjustTrove(uint256 maxFee, uint256 collWithdrawal, uint256 debtChange, bool isDebtIncrease, address upperHint, address lowerHint, uint256 collDeposit)',
-  'function operatorAdjustTrove(address owner, uint256 maxFee, uint256 collWithdrawal, uint256 debtChange, bool isDebtIncrease, address upperHint, address lowerHint, uint256 collDeposit)',
+  'function addCollateralFor(address owner, address upperHint, address lowerHint, uint256 collAmount)',
+  'function setAutoRepay(uint8 cadence)',
+  'function skimYield(address owner, address upperHint, address lowerHint)',
+  'function autoRepay(address owner) view returns (uint8 cadence, uint64 lastSkim, uint256 baseline)',
   'function closeTrove()',
   'function claimCollateral()',
 ]);
@@ -43,6 +46,8 @@ export const priceFeedAbi = parseAbi([
   'function peek() view returns (uint256 price, bool healthy)',
   'function lastGoodPrice() view returns (uint256)',
   'function isReduceOnly() view returns (bool)',
+  'function isWindDown() view returns (bool)',
+  'function lowerOfMarket(uint256) view returns (uint256)',
   'function lastGoodTimestamp() view returns (uint256)',
   'function fetchPrice() returns (uint256)',
 ]);
@@ -59,19 +64,53 @@ export const bufferAbi = parseAbi([
   'function buyInventory(uint256 octAmount, uint256 maxCollIn) returns (uint256)',
   'function fill(uint256)',
   'function releaseSurplus() returns (uint256)',
+  'function ownPot() view returns (uint256)',
+  'function totalDeposits() view returns (uint256)',
+  'function depositOf(address) view returns (uint256)',
+  'function lockedUntil(address) view returns (uint256)',
+  'function pointsOf(address) view returns (uint256)',
+  'function releasable(uint256 price) view returns (uint256)',
+  'function lastRelease() view returns (uint256)',
+  'function deposit(uint256)',
+  'function withdraw(uint256)',
+]);
+
+export const auctionAbi = parseAbi([
+  'function lot() view returns (uint256)',
+  'function price() view returns (uint256)',
+  'function cost() view returns (uint256)',
+  'function empty() view returns (bool)',
+  'function totalBurned() view returns (uint256)',
+  'function totalSold() view returns (uint256)',
+  'function buy(uint256 maxStack)',
+]);
+
+export const splitterAbi = parseAbi([
+  'function pending() view returns (uint256)',
+  'function polKeeper() view returns (address)',
+]);
+
+export const polAbi = parseAbi([
+  'function octAtOrAbovePar() view returns (bool)',
+  'function positionCount() view returns (uint256)',
+  'function totalOctDeposited() view returns (uint256)',
+  'function totalCollToAuction() view returns (uint256)',
+]);
+
+export const rewardsAbi = parseAbi([
+  'function claimable(address) view returns (uint256)',
+  'function claim() returns (uint256)',
 ]);
 
 export const registryAbi = parseAbi([
   'function setPlan(address[] accounts, uint16[] bps, address fallbackHeir)',
   'function clearPlan()',
   'function proveLife()',
-  'function setOperator(address operator, bool active, bool mayBorrow, uint256 crFloor)',
   'function getHeirs(address) view returns (address[] accounts, uint16[] bps)',
   'function getFallbackHeir(address) view returns (address)',
   'function lastProof(address) view returns (uint256)',
   'function hasPlan(address) view returns (bool)',
   'function successionState(address) view returns (uint8 state, uint256 dueAt, uint256 executableAt)',
-  'function getOperator(address, address) view returns (bool active, bool mayBorrow, uint256 crFloor)',
   'function escrowOf(address heir, address token) view returns (uint256)',
   'function estateOf(address) view returns (uint256 oct, uint256 coll, bool spWithdrawn)',
   'function execute(address)',
@@ -115,9 +154,10 @@ export const wstAbi = parseAbi([
 ]);
 
 export const keeperDeskAbi = parseAbi([
-  'struct Pending { uint256 price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; uint256 octReward; uint256 collReward; }',
+  'struct Pending { uint256 price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint256 octReward; uint256 collReward; }',
   'function pending(uint256 maxScan) view returns (Pending)',
-  'function run(address[] liquidate, address[] execute) returns (uint256 octPaid, uint256 collPaid)',
+  'function run(address[] liquidate, address[] execute, address[] skim) returns (uint256 octPaid, uint256 collPaid)',
+  'function skimmable(address owner) view returns (uint256)',
 ]);
 
 export const uniswapPoolAbi = parseAbi([

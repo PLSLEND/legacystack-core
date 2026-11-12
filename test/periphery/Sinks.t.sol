@@ -15,6 +15,8 @@ interface IPol {
     function work() external returns (uint); function harvest() external returns (uint); function octAtOrAbovePar() external view returns (bool);
     function positionCount() external view returns (uint); function totalCollReturned() external view returns (uint); function totalOctDeposited() external view returns (uint);
     function totalOctHarvested() external view returns (uint); function failedSince() external view returns (uint64);
+    function totalOctCompounded() external view returns (uint); function protocolShare() external view returns (uint);
+    function seed() external returns (uint); function seedOct() external view returns (uint);
 }
 interface ISwapCallback { function uniswapV3SwapCallback(int256, int256, bytes calldata) external; }
 
@@ -198,35 +200,73 @@ contract SinksTest is LegacyStackBase {
         assertEq(IPol(pol).positionCount(), 2);
     }
 
-    function test_polHarvestSendsFeesToTheReserveAndBuysOctOnlyAtOrBelowPar() public {
+    function test_polHarvestCompoundsWhileThePoolIsMostlyOursThenFeedsTheReserve() public {
         vm.prank(carol); IMockWst(wst).transfer(pol, 1 ether);
         poolMock.setTick(0);
-        IPol(pol).work();                                              // one position
-        // the position earned 10 OCT and 20 USDe of fees; the pool holds OCT to sell
+        IPol(pol).work();                                              // one position: 500 OCT placed
+        bool octIs0 = poolMock.token0() == oct;
+        // the mock pool "holds" what the protocol placed plus a little from others: the protocol owns most of it
+        vm.prank(bob); IERC20L(oct).transfer(address(poolMock), 400e18);
+        IERC20T(usde).mint(address(poolMock), 100e18);
+        assertEq(IPol(pol).protocolShare(), 1e18);                      // 500 placed, 500 held: all ours (capped)
+        // the position earned 10 OCT and 20 USDe of fees
         IERC20T(usde).mint(address(npmMock), 20e18);
         vm.prank(bob); IERC20L(oct).transfer(address(npmMock), 10e18);
-        vm.prank(bob); IERC20L(oct).transfer(address(poolMock), 100e18);
-        bool octIs0 = poolMock.token0() == oct;
         npmMock.setFees(poolMock.token0(), poolMock.token1(), octIs0 ? 10e18 : 20e18, octIs0 ? 20e18 : 10e18);
-        // OCT above par: the USDe waits, the OCT fees go to the reserve
+        // OCT above par: the USDe waits, the OCT fees compound into a second position (the pool is still mostly ours)
         poolMock.setTick(octIs0 ? int24(30) : int24(-30));
         uint inv0 = _inventory();
         uint toReserve = IPol(pol).harvest();
-        assertEq(toReserve, 10e18);
-        assertEq(_inventory(), inv0 + 10e18);
+        assertEq(toReserve, 0);
+        assertEq(IPol(pol).positionCount(), 2);
+        assertEq(IPol(pol).totalOctCompounded(), 10e18);
+        assertEq(IPol(pol).totalOctDeposited(), 510e18);
+        assertEq(_inventory(), inv0, "nothing to the reserve yet");
         assertEq(IERC20T(usde).balanceOf(pol), 20e18, "USDe waits for par");
-        assertEq(IPol(pol).totalOctHarvested(), 10e18);
-        // at par: the waiting USDe buys OCT one-to-one, capped at 1% over par, and the OCT joins the inventory
+        // at par: the waiting USDe buys OCT one-to-one, capped at 1% over par, and that OCT compounds too
         poolMock.setTick(0);
         toReserve = IPol(pol).harvest();
-        assertEq(toReserve, 20e18);
-        assertEq(_inventory(), inv0 + 30e18);
+        assertEq(toReserve, 0);
+        assertEq(IPol(pol).positionCount(), 3);
+        assertEq(IPol(pol).totalOctCompounded(), 30e18);
         assertEq(IERC20T(usde).balanceOf(pol), 0);
-        assertEq(IERC20T(usde).balanceOf(address(poolMock)), 20e18, "the pool was paid");
+        assertEq(IERC20T(usde).balanceOf(address(poolMock)), 120e18, "the pool was paid");
         assertEq(poolMock.lastZeroForOne(), !octIs0, "sells the counter token");
         assertEq(uint(poolMock.lastLimit()), octIs0 ? uint(79625275426524748796330556127) : uint(78833030112140176575862854578), "never more than 1% over par");
-        assertEq(IPol(pol).totalOctHarvested(), 30e18);
+        // participants join: the pool now holds far more than the protocol placed, so the next fees feed the reserve
+        vm.prank(bob); IERC20L(oct).transfer(address(poolMock), 2000e18);
+        assertLt(IPol(pol).protocolShare(), 5e17);
+        vm.prank(bob); IERC20L(oct).transfer(address(npmMock), 10e18);
+        npmMock.setFees(poolMock.token0(), poolMock.token1(), octIs0 ? 10e18 : 0, octIs0 ? 0 : 10e18);
+        toReserve = IPol(pol).harvest();
+        assertEq(toReserve, 10e18);
+        assertEq(_inventory(), inv0 + 10e18);
+        assertEq(IPol(pol).totalOctHarvested(), 10e18);
+        assertEq(IPol(pol).positionCount(), 3, "no new position");
         // nothing to collect: a harvest is a no-op, never a revert
         assertEq(IPol(pol).harvest(), 0);
+    }
+
+    function test_polSeedIsPlacedTwoSidedHeldForeverAndCountedAsTheProtocols() public {
+        // the deployment sends the opening liquidity to the keeper and seeds once; this test contract is the deployer
+        vm.prank(bob); IERC20L(oct).transfer(pol, 1000e18);
+        IERC20T(usde).mint(pol, 1000e18);
+        vm.prank(carol); vm.expectRevert("PolKeeperV3: deployer only"); IPol(pol).seed();
+        uint tokenId = IPol(pol).seed();
+        assertEq(tokenId, 1);
+        assertEq(IPol(pol).positionCount(), 1);
+        assertEq(IPol(pol).seedOct(), 2000e18, "OCT plus counter-asset, a dollar each");
+        assertEq(npmMock.lastLower(), -200); assertEq(npmMock.lastUpper(), 200);
+        assertEq(npmMock.lastAmount0(), 1000e18); assertEq(npmMock.lastAmount1(), 1000e18);
+        assertEq(IERC20L(oct).balanceOf(pol), 0); assertEq(IERC20T(usde).balanceOf(pol), 0);
+        vm.expectRevert("PolKeeperV3: seeded"); IPol(pol).seed();
+        // the mock pool holds the seed: the share is the protocol's whole, and shrinks only as others add
+        vm.prank(bob); IERC20L(oct).transfer(address(poolMock), 1000e18);
+        IERC20T(usde).mint(address(poolMock), 1000e18);
+        assertEq(IPol(pol).protocolShare(), 1e18);
+        IERC20T(usde).mint(address(poolMock), 1500e18);                 // others add 1,500: 2,000 of 3,500 is ours
+        assertEq(IPol(pol).protocolShare(), uint(2000e18) * 1e18 / 3500e18);
+        IERC20T(usde).mint(address(poolMock), 1000e18);                 // 2,000 of 4,500: under half, fees go to the reserve
+        assertLt(IPol(pol).protocolShare(), 5e17);
     }
 }

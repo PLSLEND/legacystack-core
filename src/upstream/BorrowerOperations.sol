@@ -40,6 +40,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
     mapping(address => AutoRepay) public override autoRepay;
     uint constant public SKIM_CUT_BPS = 100;        // the keeper's cut: 1% of the OCT bought ...
     uint constant public SKIM_CUT_CAP = 5e18;       // ... and never more than 5 OCT
+    uint constant public SETTLE_POOL_PREMIUM = 2e16; // a settlement pays the Stability Pool 2% over par for the OCT it provides (#170)
 
     ILUSDToken public lusdToken;
 
@@ -585,10 +586,10 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         require(LiquityMath._computeCR(v.coll, v.debt, v.price) >= MCR, "under 110%: liquidate");
 
         // The price the settlement pays collateral out at. End state (#160): the stale price with a 20% haircut,
-        // in the estate's disfavour, capped so that the collateral still covers the debt.
+        // in the estate's disfavour, capped so that the collateral still covers the debt plus the pool's premium.
         v.settlePrice = v.price;
         if (priceFeed.isWindDown()) {
-            v.settlePrice = LiquityMath._max(v.price.mul(80).div(100), v.netDebt.mul(DECIMAL_PRECISION).div(v.coll).add(1));
+            v.settlePrice = LiquityMath._max(v.price.mul(80).div(100), v.netDebt.mul(DECIMAL_PRECISION.add(SETTLE_POOL_PREMIUM)).div(v.coll).add(1));
         }
 
         // How much can be settled today: everything, or, if the liquidity is short, a partial amount that leaves
@@ -610,20 +611,22 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
             v.toSettle = v.toSettle.sub(v.octUsed);
         }
 
-        // 2. Redemption Buffer inventory at the settlement price.
+        // 2. Redemption Buffer inventory at the settlement price plus the standing offer's premium: the estate pays
+        //    what any borrower pays for the reserve's OCT (#170).
         v.fromBuffer = LiquityMath._min(v.toSettle, c.lusdToken.balanceOf(redemptionBufferAddress));
         if (v.fromBuffer > 0) {
-            v.collOut = v.fromBuffer.mul(DECIMAL_PRECISION).div(v.settlePrice);
+            v.collOut = v.fromBuffer.mul(DECIMAL_PRECISION.add(redemptionBuffer.OFFER_PREMIUM())).div(v.settlePrice);
             _repayLUSD(c.activePool, c.lusdToken, redemptionBufferAddress, v.fromBuffer);
             c.activePool.sendETH(redemptionBufferAddress, v.collOut);
             v.toSettle = v.toSettle.sub(v.fromBuffer);
             v.collRemoved = v.collRemoved.add(v.collOut);
         }
 
-        // 3. Stability Pool offset at the settlement price (the pool keeps its minimum balance).
+        // 3. Stability Pool offset at the settlement price plus 2%: the depositors are paid for providing the OCT
+        //    (#170; the pool keeps its minimum balance).
         v.fromSP = LiquityMath._min(v.toSettle, v.spAvailable);
         if (v.fromSP > 0) {
-            v.collOut = v.fromSP.mul(DECIMAL_PRECISION).div(v.settlePrice);
+            v.collOut = v.fromSP.mul(DECIMAL_PRECISION.add(SETTLE_POOL_PREMIUM)).div(v.settlePrice);
             IStabilityPool(stabilityPoolAddress).offset(v.fromSP, v.collOut); // burns from the pool, decreases active debt, moves the collateral
             v.toSettle = v.toSettle.sub(v.fromSP);
             v.collRemoved = v.collRemoved.add(v.collOut);

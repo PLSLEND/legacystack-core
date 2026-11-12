@@ -12,9 +12,17 @@ pragma solidity 0.8.28;
 * above par. Adding OCT when it trades at a premium nudges it back to par; adding it below par would push it
 * further down, so the keeper simply waits. The position is held forever: never withdrawn.
 *
-* Fees (#169): `harvest()` collects what the positions earned. OCT fees go to the reserve's inventory. Fees in
-* the counter-asset are turned into OCT inside the pool, only while OCT trades at or below par and never above
-* 1% over it (a bid that can only help the peg), and go to the reserve too; otherwise they wait here.
+* Fees (#169, #170): `harvest()` collects what the positions earned. Fees in the counter-asset are turned into
+* OCT inside the pool, only while OCT trades at or below par and never above 1% over it (a bid that can only
+* help the peg); otherwise they wait here. The OCT then goes one of two ways, by a rule and never by a key:
+* while the protocol still holds at least half of the pool (the seed it placed plus the OCT the keeper placed,
+* against everything the pool holds), the fees COMPOUND into a new position, deepening the liquidity that
+* holds the peg; once others hold more than half, the fees go to the reserve's inventory. Fees can only ever
+* sit in the pool or in the protocol; nobody can take them out.
+*
+* Seed (#170): the deployment sends the pool's opening liquidity (OCT and the counter-asset) here and calls
+* `seed()` once; the keeper places it two-sided around par (0.98 to 1.02) and holds it forever, so the
+* protocol's seed is the protocol's and counts in its share. The deployer can do nothing else, ever.
 *
 * Failure (#169): if the pool step fails, the whole conversion is undone and the wstETH stays here for the
 * next run; only after 90 days of failing does it go back to the reserve pot, so a dead venue can never trap
@@ -55,25 +63,31 @@ contract PolKeeperV3 {
     IPolPool public immutable pool;
     IPolNPM public immutable positionManager;
     bool public immutable octIsToken0;
+    address public immutable deployer;              // may call seed() once; nothing else
     uint32 public constant TWAP_WINDOW = 1 hours;
     int24 public constant RANGE_TICKS = 100;        // the one-sided band: ~1% wide, just beside the price
+    int24 public constant SEED_TICKS = 200;         // the seed band: 0.98 to 1.02 around par
     uint public constant RETRY_WINDOW = 90 days;    // a venue that fails this long gives the wstETH back to the reserve
+    uint public constant COMPOUND_WHILE_SHARE_AT_LEAST = 5e17; // fees compound while the protocol holds >= 50% of the pool
     // sqrt prices at ticks +100 and -100: the harvest never buys OCT more than 1% over par
     uint160 internal constant SQRT_TICK_PLUS_100 = 79625275426524748796330556127;
     uint160 internal constant SQRT_TICK_MINUS_100 = 78833030112140176575862854578;
 
+    uint public seedOct;                            // the opening liquidity placed through seed(): OCT plus counter-asset, ~$1 each
     uint public totalOctDeposited;
     uint public totalCollConverted;
     uint public totalCollReturned;                  // wstETH returned to the reserve after a dead spell
     uint public totalOctHarvested;                  // OCT fees sent to the reserve (fees collected plus fees bought)
+    uint public totalOctCompounded;                 // OCT fees placed back into the pool
     uint public totalCounterHarvested;              // counter-asset fees collected
     uint64 public failedSince;                      // first failed run of the current dead spell, 0 when healthy
     uint[] public positions;                        // NFT ids held forever
 
-    event Deposited(uint tokenId, uint octIn, uint collConverted, int24 tickLower, int24 tickUpper);
+    event Seeded(uint tokenId, uint oct, uint counter);
+    event Deposited(uint tokenId, uint octIn, int24 tickLower, int24 tickUpper);
     event Failed(uint collAmount, string reason);
     event ReturnedToReserve(uint collAmount);
-    event Harvested(uint octCollected, uint counterCollected, uint counterSold, uint octBought, uint octToReserve);
+    event Harvested(uint octCollected, uint counterCollected, uint counterSold, uint octBought, uint octToReserve, uint octCompounded);
 
     constructor(address _collateralToken, address _octToken, address _reserve, address _priceFeed, address _pool, address _positionManager) {
         collateralToken = IPolERC20(_collateralToken);
@@ -86,10 +100,31 @@ contract PolKeeperV3 {
         octIsToken0 = t0 == _octToken;
         require(octIsToken0 || t1 == _octToken, "PolKeeperV3: OCT is not in the pool");
         counterToken = IPolERC20(octIsToken0 ? t1 : t0);
+        deployer = msg.sender;
         try IPolPool(_pool).increaseObservationCardinalityNext(60) {} catch {}
     }
 
     function positionCount() external view returns (uint) { return positions.length; }
+
+    /// Once, by the deployer: place the OCT and counter-asset sent here as the pool's opening liquidity,
+    /// two-sided around par, held forever like every other position.
+    function seed() external returns (uint tokenId) {
+        require(msg.sender == deployer, "PolKeeperV3: deployer only");
+        require(seedOct == 0, "PolKeeperV3: seeded");
+        uint oct = octToken.balanceOf(address(this));
+        uint counter = counterToken.balanceOf(address(this));
+        require(oct > 0 && counter > 0, "PolKeeperV3: nothing to seed");
+        require(octToken.approve(address(positionManager), oct) && counterToken.approve(address(positionManager), counter), "approve");
+        uint a0; uint a1;
+        (tokenId,, a0, a1) = positionManager.mint(IPolNPM.MintParams({
+            token0: pool.token0(), token1: pool.token1(), fee: pool.fee(), tickLower: -SEED_TICKS, tickUpper: SEED_TICKS,
+            amount0Desired: octIsToken0 ? oct : counter, amount1Desired: octIsToken0 ? counter : oct,
+            amount0Min: 0, amount1Min: 0, recipient: address(this), deadline: block.timestamp
+        }));
+        positions.push(tokenId);
+        seedOct = a0 + a1;
+        emit Seeded(tokenId, octIsToken0 ? a0 : a1, octIsToken0 ? a1 : a0);
+    }
 
     /// The pool's hour-long time-weighted tick (spot if the pool is too young to have the history)
     function twapTick() public view returns (int24) {
@@ -132,6 +167,16 @@ contract PolKeeperV3 {
         }
     }
 
+    /// The protocol's share of the pool: the seed plus the OCT the keeper placed, against everything the pool
+    /// holds (both tokens, ~$1 each). A measure, not a vault: what others add shrinks it, what they remove grows it.
+    function protocolShare() public view returns (uint) {
+        uint held = octToken.balanceOf(address(pool)) + counterToken.balanceOf(address(pool));
+        if (held == 0) return 1e18;
+        uint ours = seedOct + totalOctDeposited;
+        if (ours > held) ours = held;
+        return ours * 1e18 / held;
+    }
+
     /// Internal step exposed only to itself so that a failure anywhere inside undoes the conversion.
     function convertAndDeposit(uint _collAmount) external returns (uint oct) {
         require(msg.sender == address(this), "PolKeeperV3: internal");
@@ -143,7 +188,18 @@ contract PolKeeperV3 {
         uint collIn = reserve.quoteInventory(oct, price);
         require(collateralToken.approve(address(reserve), collIn), "approve");
         reserve.buyInventory(oct, collIn);
+        _place(oct);
+        totalCollConverted += collIn;
+    }
 
+    /// Internal step exposed only to itself: harvested OCT back into the pool as a new one-sided position.
+    function placeOct(uint _oct) external {
+        require(msg.sender == address(this), "PolKeeperV3: internal");
+        _place(_oct);
+        totalOctCompounded += _oct;
+    }
+
+    function _place(uint oct) internal {
         (, int24 tick,,,,,) = pool.slot0();
         int24 spacing = pool.tickSpacing();
         int24 lower; int24 upper;
@@ -157,8 +213,7 @@ contract PolKeeperV3 {
         }));
         positions.push(tokenId);
         totalOctDeposited += oct;
-        totalCollConverted += collIn;
-        emit Deposited(tokenId, oct, collIn, lower, upper);
+        emit Deposited(tokenId, oct, lower, upper);
     }
 
     /// Anyone: collect the fees the positions earned and hand them to the reserve as OCT.
@@ -178,12 +233,20 @@ contract PolKeeperV3 {
         if (counter > 0 && octAtOrBelowPar()) {
             try this.buyOct(counter) returns (uint sold, uint bought) { counterSold = sold; octBought = bought; } catch {}
         }
-        octToReserve = octToken.balanceOf(address(this));
-        if (octToReserve > 0) {
-            require(octToken.transfer(address(reserve), octToReserve), "PolKeeperV3: transfer failed");
-            totalOctHarvested += octToReserve;
+        // the OCT in hand (collected, bought, or left from an earlier harvest): compound while the pool is still
+        // mostly ours and OCT is at or above par, otherwise to the reserve; below par it waits
+        uint oct = octToken.balanceOf(address(this));
+        uint octCompounded;
+        if (oct > 0) {
+            if (protocolShare() >= COMPOUND_WHILE_SHARE_AT_LEAST) {
+                if (octAtOrAbovePar()) { try this.placeOct(oct) { octCompounded = oct; } catch {} }
+            } else {
+                require(octToken.transfer(address(reserve), oct), "PolKeeperV3: transfer failed");
+                totalOctHarvested += oct;
+                octToReserve = oct;
+            }
         }
-        emit Harvested(octCollected, counterCollected, counterSold, octBought, octToReserve);
+        emit Harvested(octCollected, counterCollected, counterSold, octBought, octToReserve, octCompounded);
     }
 
     /// Internal step exposed only to itself: sell the counter-asset for OCT, never paying more than 1% over par.

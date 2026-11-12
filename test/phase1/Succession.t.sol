@@ -140,10 +140,10 @@ contract SuccessionTest is LegacyStackBase {
 
         // the vault is closed by succession
         assertEq(ITM(tm).getTroveStatus(alice), 5);
-        // the buffer gave (debt - 200) OCT at par and received exactly that value in wstETH
+        // the buffer gave (debt - 200) OCT at its standing-offer price (par + 0.5%, what any borrower pays, #170)
         uint netDebt = debt - GAS_COMP;
         assertEq(inventoryBefore - _inventory(), netDebt);
-        uint collToBuffer = netDebt * 1e18 / price;
+        uint collToBuffer = netDebt * 1.005e18 / price;
         assertEq(_pot() - potBefore, collToBuffer);
         // the keeper got the reward, the heirs the rest by their shares
         uint released = coll - collToBuffer;
@@ -176,14 +176,14 @@ contract SuccessionTest is LegacyStackBase {
 
         assertEq(ITM(tm).getTroveStatus(alice), 5);
         uint netDebt = debt - GAS_COMP;
-        // 3,000 from alice's own deposit, the whole inventory from the buffer, the rest from the pool at par
+        // 3,000 from alice's own deposit, the whole inventory from the buffer at par + 0.5%, the rest from the pool
+        // at par + 2%: the depositors are paid for providing the OCT (#170)
         assertEq(_inventory(), 0);
         uint fromSP = netDebt - 3000e18 - inventoryBefore;
         assertEq(spBefore - ISP(sp).getTotalLUSDDeposits(), 3000e18 + fromSP);
-        // the pool received collateral worth exactly what it gave
-        assertEq(ISP(sp).getETH(), fromSP * 1e18 / price);
+        assertEq(ISP(sp).getETH(), fromSP * 1.02e18 / price);
         // heirs received the collateral net of what settled the debt and the reward
-        uint released = coll - inventoryBefore * 1e18 / price - fromSP * 1e18 / price;
+        uint released = coll - inventoryBefore * 1.005e18 / price - fromSP * 1.02e18 / price;
         uint reward = released * 10 / 10000;
         uint distributed = released - reward;
         assertEq(IMockWst(wst).balanceOf(heir1), distributed / 2);
@@ -202,11 +202,11 @@ contract SuccessionTest is LegacyStackBase {
         (uint debtBefore, uint collBefore,,) = ITM(tm).getEntireDebtAndColl(alice);
         uint icrBefore = ITM(tm).getCurrentICR(alice, _price());
         vm.prank(keeper); IRegistry(registry).execute(alice);
-        // still open, 100 OCT less debt, collateral worth $100 less, ratio up
+        // still open, 100 OCT less debt, collateral worth $100.50 less (the reserve's price), ratio up
         assertEq(ITM(tm).getTroveStatus(alice), 1);
         (uint debtAfter, uint collAfter,,) = ITM(tm).getEntireDebtAndColl(alice);
         assertApproxEqAbs(debtBefore - debtAfter, 100e18, 1e6);
-        assertEq(collBefore - collAfter, 100e18 * 1e18 / _price());
+        assertEq(collBefore - collAfter, 100e18 * 1.005e18 / _price());
         assertGt(ITM(tm).getCurrentICR(alice, _price()), icrBefore);
         assertEq(_state(alice), 3);
         // liquidity arrives: the next call finishes the job

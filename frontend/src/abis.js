@@ -99,6 +99,9 @@ export const polAbi = parseAbi([
   'function totalOctHarvested() view returns (uint256)',
   'function failedSince() view returns (uint64)',
   'function harvest() returns (uint256)',
+  'function totalOctCompounded() view returns (uint256)',
+  'function protocolShare() view returns (uint256)',
+  'function seedOct() view returns (uint256)',
 ]);
 
 export const rewardsAbi = parseAbi([

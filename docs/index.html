@@ -177,7 +177,7 @@
     <article class="move">
       <div class="move-num">04 · It passes on</div>
       <h3>Pass it on</h3>
-      <p>Name up to ten heirs and their shares. Once a year, press one button: that is your proof of life, and nothing else counts. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault pays its own debt at par and delivers what remains directly into your heirs' wallets.</p>
+      <p>Name up to ten heirs and their shares. Once a year, press one button: that is your proof of life, and nothing else counts. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault's debt is paid from its own OCT, then from the reserve at its offer price, then by the Stability Pool at 2% over par, and what remains goes directly into your heirs' wallets.</p>
       <p class="move-note">No custodian, no paperwork, no death certificate. A clock, and a plan you can change at any time.</p>
     </article>
   </div>
@@ -196,7 +196,7 @@
     </article>
     <article class="mech-item">
       <h3>Stability Pool</h3>
-      <p>OCT deposited by participants absorbs liquidated debt and receives the liquidated collateral at a discount. It is the first line of defence against bad debt, and a position in it is part of your succession plan.</p>
+      <p>OCT deposited by participants absorbs liquidated debt and receives the liquidated collateral at a discount; when it settles an estate it is paid 2% over par. It is the first line of defence against bad debt, and a position in it is part of your succession plan.</p>
     </article>
     <article class="mech-item">
       <h3>Price feed without keys</h3>
@@ -223,6 +223,67 @@
   <div class="section-head">
     <span class="eyebrow">Your vault <em class="tag">testnet</em></span>
     <h2>Position</h2>
+  </div>
+  <div class="flows">
+    <figure class="flow flow-sm" aria-label="The vault: wstETH goes in, OCT comes out, and the collateral ratio is watched against the 110% line">
+      <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
+        <defs><marker id="fv-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0.8L7 4 0 7.2z" fill="#D9AE4B" opacity=".85"/></marker></defs>
+        <path id="fv-p1" class="fl-line" d="M78 92 H152" marker-end="url(#fv-arrow)"/>
+        <path id="fv-p2" class="fl-line" d="M328 92 H402" marker-end="url(#fv-arrow)"/>
+        <g transform="translate(46 92)">
+          <circle r="28" fill="#081130" stroke="#3D63F5" stroke-width="2"/>
+          <path d="M0 -16 L11 1 L0 8 L-11 1 Z M0 -16 L0 8" fill="none" stroke="#AEB8CE" stroke-width="1.4" stroke-linejoin="round"/>
+          <path d="M-11 5 L0 20 L11 5" fill="none" stroke="#AEB8CE" stroke-width="1.4" stroke-linejoin="round" opacity=".8"/>
+        </g>
+        <text x="46" y="140" class="fl-cap">wstETH in</text>
+        <g transform="translate(240 92)">
+          <rect x="-84" y="-50" width="168" height="100" rx="10" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+          <text x="0" y="-28" class="fl-small">collateral ratio</text>
+          <rect x="-66" y="-18" width="132" height="12" rx="6" fill="#0F1B42"/>
+          <rect x="-66" y="-18" width="86" height="12" rx="6" fill="#3D63F5" class="fv-gauge"/>
+          <line x1="-40" y1="-24" x2="-40" y2="0" stroke="#E06A6A" stroke-width="1.5"/>
+          <text x="-40" y="12" class="fl-small" style="fill:#E06A6A">110%</text>
+          <text x="0" y="36" class="fl-small fl-gold">below the line: liquidation</text>
+        </g>
+        <g transform="translate(434 92)">
+          <circle r="28" fill="#081130" stroke="#D9AE4B" stroke-width="2"/>
+          <text x="0" y="5" class="fl-small fl-gold" style="font-size:13px;font-weight:600">OCT</text>
+        </g>
+        <text x="434" y="140" class="fl-cap">OCT out</text>
+        <circle r="5" fill="#3D63F5"><animateMotion dur="2.6s" repeatCount="indefinite"><mpath href="#fv-p1"/></animateMotion></circle>
+        <circle r="5" fill="#D9AE4B" opacity="0"><set attributeName="opacity" to="1" begin="1.3s"/><animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite"><mpath href="#fv-p2"/></animateMotion></circle>
+        <text x="240" y="190" class="fl-label" style="font-size:17px">The vault</text>
+        <text x="240" y="212" class="fl-cap">1.5% a year, no maturity, one rule: stay above 110%</text>
+      </svg>
+    </figure>
+    <figure class="flow flow-sm" aria-label="Auto-repay: the staking yield is sold to the reserve at par and the OCT shrinks the debt, on your schedule">
+      <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
+        <defs><marker id="fa-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0.8L7 4 0 7.2z" fill="#D9AE4B" opacity=".85"/></marker></defs>
+        <path id="fa-p1" class="fl-line" d="M156 70 H304" marker-end="url(#fa-arrow)"/>
+        <path id="fa-p2" class="fl-line fl-return" d="M304 118 H156" marker-end="url(#fa-arrow)"/>
+        <g transform="translate(90 94)">
+          <rect x="-62" y="-60" width="124" height="120" rx="10" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+          <text x="0" y="-38" class="fl-small">collateral</text>
+          <rect x="-46" y="-30" width="92" height="12" rx="6" fill="#0F1B42"/>
+          <rect x="-46" y="-30" width="80" height="12" rx="6" fill="#3D63F5"/>
+          <rect x="34" y="-30" width="1" height="12" rx="3" fill="#E9C66F" class="fa-yield"/>
+          <text x="0" y="12" class="fl-small">debt</text>
+          <rect x="-46" y="20" width="92" height="12" rx="6" fill="#0F1B42"/>
+          <rect x="-46" y="20" width="60" height="12" rx="6" fill="#D9AE4B" class="fa-debt"/>
+        </g>
+        <g transform="translate(372 94)">
+          <path d="M-62 -30 h124 v60 a8 8 0 0 1 -8 8 h-108 a8 8 0 0 1 -8 -8 z" fill="#081130" stroke="#D9AE4B" stroke-width="2"/>
+          <text x="0" y="-2" class="fl-small fl-gold">the reserve</text>
+          <text x="0" y="18" class="fl-small">buys yield at par</text>
+        </g>
+        <text x="230" y="58" class="fl-small">staking yield</text>
+        <text x="230" y="138" class="fl-small fl-gold">OCT repays the debt</text>
+        <circle r="4" fill="#E9C66F"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#fa-p1"/></animateMotion></circle>
+        <circle r="4" fill="#D9AE4B" opacity="0"><set attributeName="opacity" to="1" begin="1.5s"/><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#fa-p2"/></animateMotion></circle>
+        <text x="240" y="190" class="fl-label" style="font-size:17px">Auto-repay from staking rewards</text>
+        <text x="240" y="212" class="fl-cap">on your schedule; the collateral you put in never shrinks</text>
+      </svg>
+    </figure>
   </div>
   <div class="row-stats">
     <div class="stat"><span class="stat-label">wstETH price</span><span id="s-price" class="stat-value">—</span></div>
@@ -320,10 +381,41 @@
 </section>
 
 <section id="succession" class="section panel">
+  <div class="head-flow">
   <div class="section-head">
     <span class="eyebrow">Succession <em class="tag">testnet</em></span>
     <h2>Your plan</h2>
     <p>One plan per wallet. It covers the vault, your Stability Pool deposit and any collateral left behind by a redemption. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you.</p>
+  </div>
+  <figure class="flow flow-sm" aria-label="Pass it on: one press a year resets the clock; after a year of silence and thirty days of grace the estate goes to the heirs by their shares">
+    <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
+      <defs><marker id="fs-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0.8L7 4 0 7.2z" fill="#D9AE4B" opacity=".85"/></marker></defs>
+      <path id="fs-p1" class="fl-line fl-dashed" d="M178 92 H250 C 290 92, 300 52, 350 52" marker-end="url(#fs-arrow)"/>
+      <path id="fs-p2" class="fl-line fl-dashed" d="M178 92 H250 C 290 92, 300 92, 350 92" marker-end="url(#fs-arrow)"/>
+      <path id="fs-p3" class="fl-line fl-dashed" d="M178 92 H250 C 290 92, 300 132, 350 132" marker-end="url(#fs-arrow)"/>
+      <g transform="translate(120 92)">
+        <circle r="52" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+        <circle r="52" fill="none" stroke="#D9AE4B" stroke-width="4" stroke-dasharray="327" stroke-dashoffset="327" transform="rotate(-90)" class="fs-year"/>
+        <text x="0" y="-10" class="fl-small">365 days</text>
+        <text x="0" y="6" class="fl-small">+ 30 of grace</text>
+        <g transform="translate(0 28)" class="fs-button">
+          <rect x="-32" y="-9" width="64" height="18" rx="9" fill="#D9AE4B" class="fs-press"/>
+          <text x="0" y="3.5" style="font-family:var(--head);font-size:8.5px;font-weight:700;fill:#140F03;text-anchor:middle;letter-spacing:.08em">I AM HERE</text>
+        </g>
+      </g>
+      <g fill="none" stroke="#EEF1F8" stroke-width="1.5" stroke-linecap="round">
+        <g transform="translate(372 52)"><circle r="16" fill="#081130" stroke="#3D63F5"/><circle cx="0" cy="-4" r="4"/><path d="M-7 8 c0-6 14-6 14 0"/></g>
+        <g transform="translate(372 92)"><circle r="16" fill="#081130" stroke="#8A86E6"/><circle cx="0" cy="-4" r="4"/><path d="M-7 8 c0-6 14-6 14 0"/></g>
+        <g transform="translate(372 132)"><circle r="16" fill="#081130" stroke="#D9AE4B"/><circle cx="0" cy="-4" r="4"/><path d="M-7 8 c0-6 14-6 14 0"/></g>
+      </g>
+      <text x="420" y="56" class="fl-small">50%</text><text x="420" y="96" class="fl-small">30%</text><text x="420" y="136" class="fl-small">20%</text>
+      <circle r="4" fill="#E9C66F" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.75;0.751;0.899;0.9;1" dur="12s" repeatCount="indefinite"/><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.75;0.9;1"><mpath href="#fs-p1"/></animateMotion></circle>
+      <circle r="4" fill="#E9C66F" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.77;0.771;0.919;0.92;1" dur="12s" repeatCount="indefinite"/><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.77;0.92;1"><mpath href="#fs-p2"/></animateMotion></circle>
+      <circle r="4" fill="#E9C66F" opacity="0"><animate attributeName="opacity" values="0;0;1;1;0;0" keyTimes="0;0.79;0.791;0.939;0.94;1" dur="12s" repeatCount="indefinite"/><animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.79;0.94;1"><mpath href="#fs-p3"/></animateMotion></circle>
+      <text x="240" y="190" class="fl-label" style="font-size:17px">Pass it on</text>
+      <text x="240" y="212" class="fl-cap">one press a year keeps it yours; silence hands it to your heirs</text>
+    </svg>
+  </figure>
   </div>
   <div class="grid-2">
     <div class="box">
@@ -414,10 +506,53 @@
 </section>
 
 <section id="buffer" class="section panel">
+  <div class="head-flow">
   <div class="section-head">
     <span class="eyebrow">Redemption Reserve <em class="tag">testnet</em></span>
     <h2>The reserve</h2>
     <p>Every fee and all interest end up here. Redemptions are served from the reserve first, so vaults are touched only when it is empty. The reserve also sets the lending limit. What it holds above its target flows out through a waterfall: half of the band up to twice the target and everything above it, at most 5% a day, split between the burn auction and protocol-owned liquidity.</p>
+  </div>
+  <figure class="flow flow-sm" aria-label="The reserve: fees and interest fill it, redemptions are served from it first, and what it holds above target is released to the burn auction and the pool">
+    <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
+      <defs>
+        <marker id="fr-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0.8L7 4 0 7.2z" fill="#D9AE4B" opacity=".85"/></marker>
+        <clipPath id="fr-clip"><path d="M185 29 h110 v75 a9 9 0 0 1 -9 9 h-92 a9 9 0 0 1 -9 -9 z"/></clipPath>
+      </defs>
+      <path id="fr-p1" class="fl-line" d="M98 70 H180" marker-end="url(#fr-arrow)"/>
+      <path id="fr-p2" class="fl-line fl-dashed" d="M300 70 H382" marker-end="url(#fr-arrow)"/>
+      <path id="fr-p3" class="fl-line fl-return" d="M240 118 V152 H150 V170" marker-end="url(#fr-arrow)"/>
+      <path id="fr-p4" class="fl-line fl-return" d="M240 118 V152 H330 V170" marker-end="url(#fr-arrow)"/>
+      <g transform="translate(50 70)">
+        <rect x="-44" y="-24" width="88" height="48" rx="8" fill="#081130" stroke="#D9AE4B" stroke-width="2"/>
+        <text x="0" y="-3" class="fl-small">fees and</text><text x="0" y="11" class="fl-small">interest</text>
+      </g>
+      <g transform="translate(240 70)">
+        <path d="M-56 -42 h112 v76 a10 10 0 0 1 -10 10 h-92 a10 10 0 0 1 -10 -10 z" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+      </g>
+      <rect x="184" y="74" width="112" height="40" fill="#3D63F5" opacity=".35" clip-path="url(#fr-clip)" class="fr-level"/>
+      <line x1="184" y1="64" x2="296" y2="64" stroke="#D9AE4B" stroke-width="1" stroke-dasharray="3 4"/>
+      <text x="240" y="52" class="fl-small fl-gold">target: 15% of all OCT</text>
+      <text x="240" y="94" class="fl-small">the reserve</text>
+      <g transform="translate(430 70)">
+        <rect x="-44" y="-24" width="88" height="48" rx="8" fill="#081130" stroke="#AEB8CE" stroke-width="1.5"/>
+        <text x="0" y="-3" class="fl-small">redemptions</text><text x="0" y="11" class="fl-small">served first</text>
+      </g>
+      <g transform="translate(150 186)">
+        <rect x="-62" y="-14" width="124" height="28" rx="6" fill="#081130" stroke="#D9AE4B" stroke-width="1.5"/>
+        <text x="0" y="4" class="fl-small">STACK burn auction</text>
+      </g>
+      <g transform="translate(330 186)">
+        <rect x="-62" y="-14" width="124" height="28" rx="6" fill="#081130" stroke="#3D63F5" stroke-width="1.5"/>
+        <text x="0" y="4" class="fl-small">OCT/USDe liquidity</text>
+      </g>
+      <text x="240" y="166" class="fl-small fl-gold" style="font-size:10px">surplus above target</text>
+      <circle r="4" fill="#D9AE4B"><animateMotion dur="2.4s" repeatCount="indefinite"><mpath href="#fr-p1"/></animateMotion></circle>
+      <circle r="4" fill="#AEB8CE" opacity="0"><set attributeName="opacity" to=".9" begin="1.2s"/><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#fr-p2"/></animateMotion></circle>
+      <circle r="3.5" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="2s"/><animateMotion dur="3s" begin="2s" repeatCount="indefinite"><mpath href="#fr-p3"/></animateMotion></circle>
+      <circle r="3.5" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="3.5s"/><animateMotion dur="3s" begin="3.5s" repeatCount="indefinite"><mpath href="#fr-p4"/></animateMotion></circle>
+      <text x="240" y="222" class="fl-cap" style="font-size:12px">The reserve: your vault is touched only when it is empty</text>
+    </svg>
+  </figure>
   </div>
   <div class="row-stats">
     <div class="stat"><span class="stat-label">Reserve</span><span id="b-pot" class="stat-value">—</span></div>
@@ -496,7 +631,7 @@
   <div class="section-head">
     <span class="eyebrow">Stability Pool <em class="tag">testnet</em></span>
     <h2>Liquidation capital</h2>
-    <p>OCT deposited here absorbs liquidated debt and receives the liquidated collateral in exchange, at a discount. Your deposit is part of your succession plan.</p>
+    <p>OCT deposited here absorbs liquidated debt and receives the liquidated collateral in exchange, at a discount. When the pool settles an estate it receives collateral worth 2% more than the OCT it gives. Your deposit is part of your succession plan.</p>
   </div>
   <div class="row-stats">
     <div class="stat"><span class="stat-label">Pool size</span><span id="sp-total" class="stat-value">—</span></div>
@@ -529,7 +664,7 @@
   <div class="section-head">
     <span class="eyebrow">Market <em class="tag">testnet</em></span>
     <h2>OCT/USDe</h2>
-    <p>Where OCT changes hands. The protocol seeded this pool at par with its own OCT. When the market price drifts under par, anyone can buy OCT here and redeem it at par against the reserve; when it drifts above, anyone can mint and sell. That arbitrage is what holds the price, and this is the place to watch it work.</p>
+    <p>Where OCT changes hands. The protocol seeded this pool at par with its own OCT and USDe, held by its liquidity keeper for good. When the market price drifts under par, anyone can buy OCT here and redeem it at par against the reserve; when it drifts above, anyone can mint and sell. That arbitrage is what holds the price, and this is the place to watch it work.</p>
   </div>
   <div class="row-stats">
     <div class="stat"><span class="stat-label">OCT price in the pool</span><span id="m-price" class="stat-value">—</span></div>

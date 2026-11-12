@@ -41,7 +41,8 @@ interface IDeployHint { function setAddresses(address,address) external; }
 interface IDeployBuffer { function setAddresses(address,address,address,address,address,address) external; }
 interface IDeployRegistry { function setAddresses(address,address,address,address,address,address) external; }
 interface IDeployAgg { function setDecimals(uint8) external; function setPrice(int) external; function setPrevPrice(int) external; function setUpdateTime(uint) external; function setPrevUpdateTime(uint) external; function setLatestRoundId(uint80) external; function setPrevRoundId(uint80) external; }
-interface IDeployWst { function mint(address,uint) external; function approve(address,uint) external returns (bool); }
+interface IDeployWst { function mint(address,uint) external; function approve(address,uint) external returns (bool); function transfer(address,uint) external returns (bool); }
+interface IDeployPol { function seed() external returns (uint); }
 interface IDeployAggRead { function decimals() external view returns (uint8); function latestRoundData() external view returns (uint80, int256, uint256, uint256, uint80); }
 interface IDeployNPM {
     struct MintParams { address token0; address token1; uint24 fee; int24 tickLower; int24 tickUpper; uint amount0Desired; uint amount1Desired; uint amount0Min; uint amount1Min; address recipient; uint deadline; }
@@ -138,18 +139,15 @@ contract Deploy is Script {
         for (uint i = 0; i < 9; i++) { IDeployWst(a.stack).mint(a.rewards, 100_000e18); }
         IDeployWst(a.stack).mint(deployer, 10_000e18);
 
-        // OCT/USDe pool (Uniswap v3, 0.05%), protocol-seeded at par, so the peg and the buffer can be tested
-        // against a market. Testnet only; the mainnet venue is a Curve StableSwap-NG pool.
+        // OCT/USDe pool (Uniswap v3, 0.05%), protocol-seeded at par through the POL keeper, which places the
+        // seed two-sided (0.98 to 1.02), holds it forever and counts it as the protocol's share (#170), so the
+        // peg and the buffer can be tested against a market. Testnet only; the mainnet venue is a Curve
+        // StableSwap-NG pool.
         if (npm != address(0)) {
             IDeployWst(a.usde).mint(deployer, 100_000e18);
-            (address t0, address t1) = a.oct < a.usde ? (a.oct, a.usde) : (a.usde, a.oct);
-            IDeployWst(a.oct).approve(npm, type(uint).max);
-            IDeployWst(a.usde).approve(npm, type(uint).max);
-            IDeployNPM(npm).mint(IDeployNPM.MintParams({
-                token0: t0, token1: t1, fee: 500, tickLower: -200, tickUpper: 200,
-                amount0Desired: 20_000e18, amount1Desired: 20_000e18, amount0Min: 0, amount1Min: 0,
-                recipient: deployer, deadline: block.timestamp + 1 days
-            }));
+            IDeployWst(a.oct).transfer(a.pol, 20_000e18);
+            IDeployWst(a.usde).transfer(a.pol, 20_000e18);
+            IDeployPol(a.pol).seed();
         }
 
         vm.stopBroadcast();

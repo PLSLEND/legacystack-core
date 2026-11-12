@@ -270,7 +270,7 @@ contract PriceFeedTest is LegacyStackBase {
         IRegistry(registry).execute(alice);
         uint octUsed = inv0 - _inventory();
         uint collIn = _pot() - pot0;
-        assertApproxEqRel(collIn, octUsed * 1e18 / (2400e18 * 80 / 100), 1e12);
+        assertApproxEqRel(collIn, octUsed * 1.005e18 / (2400e18 * 80 / 100), 1e12);   // the haircut price, plus the reserve's 0.5%
         assertEq(ITM(tm).getTroveStatus(alice), 5);
         assertGt(IMockWst(wst).balanceOf(carol), 0);
     }

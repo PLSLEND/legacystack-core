@@ -147,8 +147,29 @@ main { max-width: 1140px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem) 3rem
 @keyframes fl-spin { to { transform: rotate(360deg); } }
 @keyframes fl-pulse { 0%, 100% { transform: scale(.92); opacity: .7; } 50% { transform: scale(1.08); opacity: 1; } }
 @keyframes fl-gauge { 0%, 100% { width: 62px; } 50% { width: 74px; } }
-@media (prefers-reduced-motion: reduce) { .fl-line, .fl-ring, .fl-pulse, .fl-gauge { animation: none; } }
-@media (max-width: 720px) { .flow-svg { min-width: 640px; } .flow { overflow-x: auto; } }
+/* the small pictograms: one tool, one moving picture, beside the words that explain it */
+.flows { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin: 0 0 1.4rem; }
+.head-flow { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 500px); gap: 1.4rem 2.4rem; align-items: center; margin-bottom: 1.8rem; }
+.head-flow .section-head { margin-bottom: 0; }
+.flow-sm { margin: 0; padding: 0.5rem 0.6rem 0.2rem; border: 1px solid var(--line-soft); border-radius: 6px; background: linear-gradient(180deg, var(--bg-2), var(--bg)); }
+.flow-sm .flow-svg { max-width: 580px; }
+.fv-gauge { animation: fv-gauge 7s ease-in-out infinite; }
+.fa-yield { animation: fa-yield 3s linear infinite; }
+.fa-debt { animation: fa-debt 12s steps(1, end) infinite; }
+.fs-year { animation: fs-year 12s linear infinite; }
+.fs-press { animation: fs-press 12s linear infinite; }
+.fs-button { animation: fs-button 12s linear infinite; }
+.fr-level { animation: fr-level 6s ease-in-out infinite; }
+@keyframes fv-gauge { 0%, 100% { width: 86px; } 50% { width: 56px; } }
+@keyframes fa-yield { from { width: 1px; } to { width: 12px; } }
+@keyframes fa-debt { 0% { width: 60px; } 12.5% { width: 57px; } 37.5% { width: 54px; } 62.5% { width: 51px; } 87.5% { width: 48px; } 100% { width: 60px; } }
+@keyframes fs-year { 0% { stroke-dashoffset: 327; stroke: #D9AE4B; } 33% { stroke-dashoffset: 0; stroke: #D9AE4B; } 33.4% { stroke-dashoffset: 327; } 36% { stroke-dashoffset: 327; stroke: #D9AE4B; } 70% { stroke-dashoffset: 0; stroke: #D9AE4B; } 74%, 100% { stroke-dashoffset: 0; stroke: #E06A6A; } }
+@keyframes fs-press { 0%, 31% { fill: #D9AE4B; } 33% { fill: #FFF6DC; } 36%, 100% { fill: #D9AE4B; } }
+@keyframes fs-button { 0%, 70% { opacity: 1; } 74%, 100% { opacity: .3; } }
+@keyframes fr-level { 0% { y: 74px; height: 40px; } 50%, 60% { y: 52px; height: 62px; } 100% { y: 64px; height: 50px; } }
+@media (prefers-reduced-motion: reduce) { .fl-line, .fl-ring, .fl-pulse, .fl-gauge, .fv-gauge, .fa-yield, .fa-debt, .fs-year, .fs-press, .fs-button, .fr-level { animation: none; } }
+@media (max-width: 860px) { .head-flow { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .flow-svg { min-width: 640px; } .flow { overflow-x: auto; } .flow-sm .flow-svg { min-width: 400px; } }
 .moves { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; }
 .move { background: var(--bg-2); border: 1px solid var(--line-soft); border-top: 2px solid var(--gold); border-radius: 6px; padding: 1.3rem 1.2rem 1.1rem; }
 .move-num { font-family: var(--head); color: var(--gold); font-size: 0.72rem; letter-spacing: 0.18em; margin-bottom: 0.6rem; white-space: nowrap; }

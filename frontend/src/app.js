@@ -225,17 +225,20 @@ async function refreshSinks() {
   $('au-sink').textContent = pending > 0n ? `${fmt(pending, 4)} wstETH to split on the next desk run` : 'nothing';
   $('btn-buy-lot').disabled = empty || lot === 0n;
   if (pol.toLowerCase() === D.burnAuction.toLowerCase()) { $('au-pol').textContent = 'no market pool on this chain: both halves burn'; return; }
-  const [par, n, octIn, toAuction, returned, harvested, failedSince] = await Promise.all([
+  const [par, n, octIn, toAuction, returned, harvested, failedSince, compounded, share, seed] = await Promise.all([
     read(pol, A.polAbi, 'octAtOrAbovePar'), read(pol, A.polAbi, 'positionCount'), read(pol, A.polAbi, 'totalOctDeposited'), read(pol, A.polAbi, 'totalCollToAuction').catch(() => 0n),
     read(pol, A.polAbi, 'totalCollReturned').catch(() => 0n), read(pol, A.polAbi, 'totalOctHarvested').catch(() => null), read(pol, A.polAbi, 'failedSince').catch(() => 0n),
+    read(pol, A.polAbi, 'totalOctCompounded').catch(() => null), read(pol, A.polAbi, 'protocolShare').catch(() => null), read(pol, A.polAbi, 'seedOct').catch(() => 0n),
   ]);
   const held = await read(D.wstETH, A.erc20Abi, 'balanceOf', [pol]);
   const notes = [];
-  if (harvested !== null) notes.push(`${fmt(harvested, 2)} OCT of pool fees harvested to the reserve`);
+  if (share !== null) notes.push(`the protocol holds ${pct(share)} of the pool: fees ${share >= 5n * 10n ** 17n ? 'compound into the pool' : 'go to the reserve'}`);
+  if (compounded !== null && compounded > 0n) notes.push(`${fmt(compounded, 2)} OCT of fees compounded`);
+  if (harvested !== null && harvested > 0n) notes.push(`${fmt(harvested, 2)} OCT of fees to the reserve`);
   if (failedSince > 0n) notes.push(`the pool has been failing since ${date(failedSince)}; the wstETH waits, after 90 days it returns to the reserve`);
   if (returned > 0n) notes.push(`${fmt(returned, 4)} wstETH returned to the reserve after a dead spell`);
   if (toAuction > 0n) notes.push(`${fmt(toAuction, 4)} wstETH went to the auction when the pool failed`);
-  $('au-pol').textContent = `${n} position${n === 1n ? '' : 's'}, ${fmt(octIn, 0)} OCT placed · ${fmt(held, 4)} wstETH waiting (${par ? 'OCT at or above par: deploys on the next run' : 'OCT below par: waiting'})${notes.length ? ' · ' + notes.join(' · ') : ''}`;
+  $('au-pol').textContent = `${n} position${n === 1n ? '' : 's'}, ${seed > 0n ? `${fmt(seed, 0)} of opening liquidity and ` : ''}${fmt(octIn, 0)} OCT placed · ${fmt(held, 4)} wstETH waiting (${par ? 'OCT at or above par: deploys on the next run' : 'OCT below par: waiting'})${notes.length ? ' · ' + notes.join(' · ') : ''}`;
 }
 async function refreshDeposit() {
   if (!me) return;

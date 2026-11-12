@@ -11,6 +11,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-wallet" viewBox="0 0 16 16"><rect x="1.4" y="4.2" width="12.2" height="9.4" rx="1.9" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M1.4 7.2h12.2" stroke="currentColor" stroke-width="1.1" opacity=".55"/><circle cx="10.6" cy="10.3" r="1.1" fill="currentColor"/><path d="M12.9 0.9v3.4M11.2 2.6h3.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></symbol></svg>
 <div class="notice-bar">Test deployment on the Sepolia network. Unaudited code. Nothing here has value and nothing here is a promise about a future deployment.</div>
 
 <header class="site-header">
@@ -39,6 +40,8 @@
     var bar = document.querySelector('.notice-bar'), head = document.querySelector('.site-header');
     function fit() { document.documentElement.style.setProperty('--chrome', (bar.offsetHeight + head.offsetHeight) + 'px'); }
     fit(); window.addEventListener('resize', fit); window.addEventListener('load', fit);
+    // the flow pictograms loop with SMIL; people who prefer reduced motion get them still
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) window.addEventListener('load', function () { document.querySelectorAll('svg.flow-svg').forEach(function (el) { el.pauseAnimations(); }); });
   })();
 </script>
 
@@ -83,6 +86,75 @@
     <h2>One asset, working four times</h2>
     <p>Most people sell what grows to pay for what they need, and lose the growth. Family offices and private banks have always done the opposite: hold the asset, borrow against it, put the liquidity to work, hand the whole structure down. That playbook used to need a banker, a trust and a great deal of money. Here it needs a wallet. Each layer is money the same asset earns again.</p>
   </div>
+<figure class="flow" aria-label="The loop: the asset is held and grows, the vault lends against it, the liquidity works, the yield returns, and the whole structure passes to the heirs">
+  <svg viewBox="0 -6 1000 256" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
+    <defs>
+      <linearGradient id="fl-gb" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3D63F5"/><stop offset="1" stop-color="#D9AE4B"/></linearGradient>
+      <radialGradient id="fl-glow"><stop offset="0" stop-color="#D9AE4B" stop-opacity=".35"/><stop offset="1" stop-color="#D9AE4B" stop-opacity="0"/></radialGradient>
+      <marker id="fl-arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0.8L7 4 0 7.2z" fill="#D9AE4B" opacity=".85"/></marker>
+    </defs>
+
+    <!-- connectors: forward (asset to vault to liquidity to heirs) and the return of the yield -->
+    <path id="fl-p1" class="fl-line" d="M178 130 H318" marker-end="url(#fl-arrow)"/>
+    <path id="fl-p2" class="fl-line" d="M478 130 H618" marker-end="url(#fl-arrow)"/>
+    <path id="fl-p3" class="fl-line fl-dashed" d="M782 130 H858" marker-end="url(#fl-arrow)"/>
+    <path id="fl-p4" class="fl-line fl-return" d="M700 72 C 700 6, 120 6, 120 70" marker-end="url(#fl-arrow)"/>
+
+    <!-- 1. hold: the asset, with its slow pulse of growth -->
+    <g transform="translate(120 130)">
+      <circle r="58" fill="url(#fl-glow)" class="fl-pulse"/>
+      <circle r="40" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+      <path d="M0 -24 L17 2 L0 12 L-17 2 Z M0 -24 L0 12" fill="none" stroke="#AEB8CE" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M-17 7 L0 30 L17 7" fill="none" stroke="#AEB8CE" stroke-width="1.6" stroke-linejoin="round" opacity=".8"/>
+      <circle r="47" fill="none" stroke="#D9AE4B" stroke-width="1" stroke-dasharray="3 6" opacity=".55" class="fl-ring"/>
+    </g>
+    <text x="120" y="212" class="fl-label">Hold</text>
+    <text x="120" y="232" class="fl-cap">wstETH, growing on its own</text>
+
+    <!-- 2. borrow: the vault with its ratio gauge -->
+    <g transform="translate(398 130)">
+      <rect x="-62" y="-46" width="124" height="92" rx="10" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+      <rect x="-48" y="-32" width="96" height="10" rx="5" fill="#0F1B42"/>
+      <rect x="-48" y="-32" width="62" height="10" rx="5" fill="#3D63F5" class="fl-gauge"/>
+      <text x="0" y="2" class="fl-small">collateral ratio</text>
+      <text x="0" y="24" class="fl-small fl-gold">110% floor · no maturity</text>
+      <circle cx="46" cy="-30" r="4" fill="#58C48C"><animate attributeName="opacity" values="1;.3;1" dur="2.4s" repeatCount="indefinite"/></circle>
+    </g>
+    <text x="398" y="212" class="fl-label">Borrow</text>
+    <text x="398" y="232" class="fl-cap">OCT at 1.5% fixed, for life</text>
+
+    <!-- 3. deploy: the liquidity at work -->
+    <g transform="translate(700 130)">
+      <circle cx="-16" cy="0" r="38" fill="#081130" stroke="#3D63F5" stroke-width="2" opacity=".95"/>
+      <circle cx="16" cy="0" r="38" fill="#081130" stroke="#D9AE4B" stroke-width="2" opacity=".95" fill-opacity=".6"/>
+      <text x="0" y="5" class="fl-small">at work</text>
+      <circle r="52" fill="none" stroke="#D9AE4B" stroke-width="1" stroke-dasharray="2 7" opacity=".4" class="fl-ring"/>
+    </g>
+    <text x="700" y="212" class="fl-label">Deploy</text>
+    <text x="700" y="232" class="fl-cap">the yield comes back</text>
+
+    <!-- 4. pass it on: the heirs -->
+    <g transform="translate(900 130)">
+      <circle r="46" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+      <g fill="none" stroke="#EEF1F8" stroke-width="1.6" stroke-linecap="round">
+        <circle cx="0" cy="-14" r="7"/><path d="M-11 12 c0-9 22-9 22 0"/>
+        <circle cx="-22" cy="-6" r="5" opacity=".7"/><path d="M-31 14 c0-7 18-7 18 0" opacity=".7"/>
+        <circle cx="22" cy="-6" r="5" opacity=".7"/><path d="M13 14 c0-7 18-7 18 0" opacity=".7"/>
+      </g>
+      <circle cx="34" cy="-34" r="9" fill="#D9AE4B"><animate attributeName="r" values="9;11;9" dur="3.2s" repeatCount="indefinite"/></circle>
+      <path d="M30 -34 l3 3 5-6" fill="none" stroke="#140F03" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="900" y="212" class="fl-label">Pass it on</text>
+    <text x="900" y="232" class="fl-cap">one button a year keeps it yours</text>
+
+    <!-- the moving value: collateral in, OCT out, yield back -->
+    <circle r="5" fill="#3D63F5"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#fl-p1"/></animateMotion></circle>
+    <circle r="5" fill="#D9AE4B" opacity="0"><set attributeName="opacity" to="1" begin="1.5s"/><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#fl-p2"/></animateMotion></circle>
+    <circle r="4" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="0.6s"/><animateMotion dur="5s" begin="0.6s" repeatCount="indefinite"><mpath href="#fl-p4"/></animateMotion></circle>
+    <circle r="4" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="3.1s"/><animateMotion dur="5s" begin="3.1s" repeatCount="indefinite"><mpath href="#fl-p4"/></animateMotion></circle>
+    <text x="410" y="13" class="fl-cap fl-gold">the yield comes back: it shrinks the debt (auto-repay) or feeds the next layer</text>
+  </svg>
+</figure>
   <div class="moves">
     <article class="move">
       <div class="move-num">01 · It grows</div>
@@ -155,9 +227,9 @@
   <div class="row-stats">
     <div class="stat"><span class="stat-label">wstETH price</span><span id="s-price" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Oracle</span><span id="s-oracle" class="stat-value">—</span></div>
-    <div class="stat"><span class="stat-label">Your ETH</span><span id="s-eth" class="stat-value">—</span></div>
-    <div class="stat"><span class="stat-label">Your wstETH</span><span id="s-wst" class="stat-value">—</span><button type="button" class="watch" data-watch="wst">show in MetaMask</button></div>
-    <div class="stat"><span class="stat-label">Your OCT</span><span id="s-oct" class="stat-value">—</span><button type="button" class="watch" data-watch="oct">show in MetaMask</button></div>
+    <div class="stat"><span class="stat-label">ETH in wallet</span><span id="s-eth" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">wstETH in wallet<button type="button" class="watch" data-watch="wst" title="Show wstETH in your wallet" aria-label="Show wstETH in your wallet"><svg class="ico" aria-hidden="true"><use href="#i-wallet"/></svg></button></span><span id="s-wst" class="stat-value">—</span></div>
+    <div class="stat"><span class="stat-label">OCT in wallet<button type="button" class="watch" data-watch="oct" title="Show OCT in your wallet" aria-label="Show OCT in your wallet"><svg class="ico" aria-hidden="true"><use href="#i-wallet"/></svg></button></span><span id="s-oct" class="stat-value">—</span></div>
   </div>
 
   <div class="grid-2">
@@ -241,10 +313,9 @@
     <h3>Testnet tools</h3>
     <p class="small">Test wstETH and test USDe are free: the faucets mint them to your wallet. Gas on the test network comes from a public faucet; links are at the bottom of the page.</p>
     <div class="actions">
-      <button id="btn-faucet" class="btn btn-ghost">Mint 10 test wstETH</button>
-      <button id="btn-faucet-usde" class="btn btn-ghost">Mint 10,000 test USDe</button>
+      <button id="btn-faucet" class="btn btn-ghost">Mint 10 test wstETH</button><button type="button" class="watch" data-watch="wst" title="Show test wstETH in your wallet" aria-label="Show test wstETH in your wallet"><svg class="ico" aria-hidden="true"><use href="#i-wallet"/></svg></button>
+      <button id="btn-faucet-usde" class="btn btn-ghost">Mint 10,000 test USDe</button><button type="button" class="watch" data-watch="usde" title="Show test USDe in your wallet" aria-label="Show test USDe in your wallet"><svg class="ico" aria-hidden="true"><use href="#i-wallet"/></svg></button>
     </div>
-    <p class="small watch-row">Show the test tokens in your wallet: <button type="button" class="watch" data-watch="wst">wstETH</button> <button type="button" class="watch" data-watch="usde">USDe</button> <button type="button" class="watch" data-watch="oct">OCT</button> <button type="button" class="watch" data-watch="stack">STACK</button></p>
   </div>
 </section>
 
@@ -320,17 +391,22 @@
     </div>
     <div class="box">
       <h3>Keeper desk</h3>
-      <p class="small">The protocol has no staff. Whoever presses this button does the housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, 1% of the OCT (at most 5) for every auto-repay that is due, and interest accrual and reserve releases on the way. One transaction does everything that is pending.</p>
+      <p class="small">The protocol has no staff. Whoever presses a button does that piece of housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, 1% of the OCT (at most 5) for every auto-repay that is due. Three buttons, three jobs, so the urgent one never pays for the others.</p>
       <dl class="kv">
         <dt>Vaults to liquidate</dt><dd id="k-liq">—</dd>
         <dt>Estates to settle</dt><dd id="k-exe">—</dd>
         <dt>Vaults to auto-repay</dt><dd id="k-skim">—</dd>
+        <dt>Reserve housekeeping</dt><dd id="k-tend">—</dd>
         <dt>Reward if run now</dt><dd id="k-reward">—</dd>
       </dl>
       <form id="form-execute">
         <label>Also settle this wallet (optional)<input id="ex-addr" type="text" placeholder="0x…"></label>
         <div class="preview" id="ex-preview">Enter a wallet to read its state.</div>
-        <button class="btn btn-gold" type="submit" id="btn-run-desk">Run the desk</button>
+        <div class="actions">
+          <button class="btn btn-gold" type="button" id="btn-desk-liq">Liquidate</button>
+          <button class="btn btn-gold" type="submit" id="btn-desk-estates">Settle and auto-repay</button>
+          <button class="btn btn-ghost" type="button" id="btn-desk-tend">Reserve housekeeping</button>
+        </div>
       </form>
       <div class="actions"><button id="btn-escrow" class="btn btn-ghost hidden">Claim escrow</button></div>
     </div>
@@ -384,7 +460,7 @@
       <h3>Reserve deposit</h3>
       <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. It earns STACK for every day it serves, paid by the rewards contract while it holds any. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
       <dl class="kv">
-        <dt>Your deposit</dt><dd id="rd-mine">—</dd>
+        <dt>Your reserve deposit</dt><dd id="rd-mine">—</dd>
         <dt>Unlocks</dt><dd id="rd-unlock">—</dd>
         <dt>Time served</dt><dd id="rd-points">—</dd>
         <dt>STACK to claim</dt><dd id="rd-claim">—</dd>
@@ -410,8 +486,7 @@
       </dl>
       <div class="actions">
         <button class="btn btn-gold" type="button" id="btn-buy-lot">Buy the lot with STACK</button>
-        <button class="btn btn-ghost" type="button" id="btn-faucet-stack">Mint 1,000 test STACK</button>
-        <button type="button" class="watch" data-watch="stack">show STACK in MetaMask</button>
+        <button class="btn btn-ghost" type="button" id="btn-faucet-stack">Mint 1,000 test STACK</button><button type="button" class="watch" data-watch="stack" title="Show test STACK in your wallet" aria-label="Show test STACK in your wallet"><svg class="ico" aria-hidden="true"><use href="#i-wallet"/></svg></button>
       </div>
     </div>
   </div>
@@ -432,7 +507,7 @@
   <div class="grid-2">
     <div class="box">
       <dl class="kv">
-        <dt>Your deposit</dt><dd id="sp-mine">—</dd>
+        <dt>Your pool deposit</dt><dd id="sp-mine">—</dd>
         <dt>Your share of the pool</dt><dd id="sp-mine-share">—</dd>
         <dt>Your collateral gain</dt><dd id="sp-gain">—</dd>
       </dl>

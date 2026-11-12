@@ -6,14 +6,16 @@ pragma solidity 0.8.28;
 * already pays to whoever made the call. Periphery: holds no funds between calls, has no owner, changes no
 * rule. Anyone may call it; a bot, a wallet, a browser button.
 *
-* What a run does, in order: accrue interest; release reserve surplus if one is due; liquidate the vaults
-* passed in (the protocol pays 200 OCT plus 0.5% of the collateral per vault, Liquity's gas compensation);
-* execute the successions passed in (the protocol pays the estate's executor reward); skim the staking yield
-* of the vaults passed in whose auto-repay is due (the protocol pays 1% of the OCT, capped at 5 OCT); split
-* whatever the surplus sink holds and let the POL keeper work (no reward, a few thousand gas); then sweep
-* the OCT and collateral this contract received to the caller. Steps that have nothing to do are
-* skipped, never reverted, so a run always finishes. `pending()` is the matching read: it scans the riskiest
-* vaults and reports what a run would do and roughly what it would pay.
+* What a run does, in order: accrue interest; liquidate the vaults passed in (the protocol pays 200 OCT plus
+* 0.5% of the collateral per vault, Liquity's gas compensation); execute the successions passed in (the
+* protocol pays the estate's executor reward); skim the staking yield of the vaults passed in whose auto-repay
+* is due (the protocol pays 1% of the OCT, capped at 5 OCT); and, when `tend` is set, the reserve's
+* housekeeping: release the surplus if one is due, split whatever the surplus sink holds, let the POL keeper
+* work and harvest its fees (no reward, a few thousand gas); then sweep the OCT and collateral this contract
+* received to the caller. The caller chooses the categories, so a frequent job such as a liquidation pays only
+* for itself (LS_06 #169). Steps that have nothing to do are skipped, never reverted, so a run always finishes.
+* `pending()` is the matching read: it scans the riskiest vaults and reports what a run would do, roughly
+* what it would pay, and whether the reserve side has anything to tend.
 */
 interface IDeskTroveManager {
     function accrueInterest() external;
@@ -39,9 +41,12 @@ interface IDeskBorrowerOperations {
 interface IDeskWstETH { function stEthPerToken() external view returns (uint); }
 interface IDeskSortedTroves { function getLast() external view returns (address); function getPrev(address id) external view returns (address); function getSize() external view returns (uint); }
 interface IDeskPriceFeed { function peek() external view returns (uint price, bool healthy); }
-interface IDeskBuffer { function releaseSurplus() external returns (uint); function inventory() external view returns (uint); function OFFER_PREMIUM() external view returns (uint); function surplusSink() external view returns (address); }
-interface IDeskSplitter { function split() external returns (uint, uint); function polKeeper() external view returns (address); }
-interface IDeskPol { function work() external returns (uint); }
+interface IDeskBuffer {
+    function releaseSurplus() external returns (uint); function inventory() external view returns (uint); function OFFER_PREMIUM() external view returns (uint);
+    function surplusSink() external view returns (address); function releasable(uint price) external view returns (uint); function lastRelease() external view returns (uint);
+}
+interface IDeskSplitter { function split() external returns (uint, uint); function polKeeper() external view returns (address); function pending() external view returns (uint); }
+interface IDeskPol { function work() external returns (uint); function harvest() external returns (uint); function octAtOrAbovePar() external view returns (bool); }
 interface IDeskRegistry {
     function successionState(address owner) external view returns (uint8 state, uint dueAt, uint executableAt);
     function execute(address owner) external;
@@ -73,12 +78,9 @@ contract KeeperDesk {
         collateralToken = IDeskERC20(_coll);
     }
 
-    /// Everything pending, in one transaction. Rewards go to the caller.
-    function run(address[] calldata _liquidate, address[] calldata _execute, address[] calldata _skim) external returns (uint octPaid, uint collPaid) {
+    /// The chosen categories, in one transaction. Rewards go to the caller.
+    function run(address[] calldata _liquidate, address[] calldata _execute, address[] calldata _skim, bool _tend) external returns (uint octPaid, uint collPaid) {
         troveManager.accrueInterest();
-
-        uint released;
-        try redemptionBuffer.releaseSurplus() returns (uint amount) { released = amount; } catch {}
 
         uint liquidated;
         if (_liquidate.length > 0) {
@@ -95,14 +97,8 @@ contract KeeperDesk {
             try borrowerOperations.skimYield(_skim[i], address(0), address(0)) { skimmed++; } catch {}
         }
 
-        // the sink side: split the released wstETH and give the POL keeper its chance (periphery, may be absent)
-        address sink = redemptionBuffer.surplusSink();
-        if (sink.code.length > 0) {
-            try IDeskSplitter(sink).split() {} catch {}
-            try IDeskSplitter(sink).polKeeper() returns (address pol) {
-                if (pol.code.length > 0) { try IDeskPol(pol).work() {} catch {} }
-            } catch {}
-        }
+        uint released;
+        if (_tend) released = _tend_();
 
         octPaid = octToken.balanceOf(address(this));
         collPaid = collateralToken.balanceOf(address(this));
@@ -111,8 +107,24 @@ contract KeeperDesk {
         emit Run(msg.sender, liquidated, executed, skimmed, released, octPaid, collPaid);
     }
 
+    // The reserve side: release a due surplus, split it, let the POL keeper work and harvest its fees
+    // (periphery contracts, any of which may be absent on a chain).
+    function _tend_() internal returns (uint released) {
+        try redemptionBuffer.releaseSurplus() returns (uint amount) { released = amount; } catch {}
+        address sink = redemptionBuffer.surplusSink();
+        if (sink.code.length > 0) {
+            try IDeskSplitter(sink).split() {} catch {}
+            try IDeskSplitter(sink).polKeeper() returns (address pol) {
+                if (pol.code.length > 0) {
+                    try IDeskPol(pol).work() {} catch {}
+                    try IDeskPol(pol).harvest() {} catch {}
+                }
+            } catch {}
+        }
+    }
+
     struct Rewards { uint threshold; uint gasComp; uint divisor; uint rewardBps; uint rewardCap; uint rate; uint ratePerYear; uint premium; uint inventory; uint cutBps; uint cutCap; }
-    struct Pending { uint price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint octReward; uint collReward; }
+    struct Pending { uint price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint octReward; uint collReward; bool tend; }
 
     struct Scan { address owner; address[] liq; address[] exe; address[] skm; uint nl; uint ne; uint ns; }
 
@@ -144,12 +156,29 @@ contract KeeperDesk {
             s.owner = sortedTroves.getPrev(s.owner);
         }
 
+        w.tend = _tendPending(w.price);
         w.liquidatable = new address[](s.nl);
         w.executable = new address[](s.ne);
         w.skimmable = new address[](s.ns);
         for (uint i = 0; i < s.nl; i++) w.liquidatable[i] = s.liq[i];
         for (uint i = 0; i < s.ne; i++) w.executable[i] = s.exe[i];
         for (uint i = 0; i < s.ns; i++) w.skimmable[i] = s.skm[i];
+    }
+
+    // Something for the reserve side to do: a due surplus, an unsplit sink, or a POL keeper with wstETH at par
+    function _tendPending(uint _price) internal view returns (bool) {
+        try redemptionBuffer.releasable(_price) returns (uint rel) {
+            if (rel > 0 && redemptionBuffer.lastRelease() + 1 days <= block.timestamp) return true;
+        } catch {}
+        address sink = redemptionBuffer.surplusSink();
+        if (sink.code.length == 0) return false;
+        try IDeskSplitter(sink).pending() returns (uint p) { if (p > 0) return true; } catch {}
+        try IDeskSplitter(sink).polKeeper() returns (address pol) {
+            if (pol.code.length > 0 && collateralToken.balanceOf(pol) > 0) {
+                try IDeskPol(pol).octAtOrAbovePar() returns (bool ok) { return ok; } catch {}
+            }
+        } catch {}
+        return false;
     }
 
     function _scanOne(Scan memory _s, Pending memory _w, Rewards memory _r) internal view {

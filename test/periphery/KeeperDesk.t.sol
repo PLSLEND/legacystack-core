@@ -4,8 +4,8 @@ pragma solidity 0.8.28;
 import "../base/LegacyStackBase.sol";
 
 interface IDesk {
-    struct Pending { uint price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint octReward; uint collReward; }
-    function run(address[] calldata, address[] calldata, address[] calldata) external returns (uint, uint);
+    struct Pending { uint price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint octReward; uint collReward; bool tend; }
+    function run(address[] calldata, address[] calldata, address[] calldata, bool) external returns (uint, uint);
     function pending(uint) external view returns (Pending memory);
     function skimmable(address) external view returns (uint);
 }
@@ -42,7 +42,7 @@ contract KeeperDeskTest is LegacyStackBase {
 
         address[] memory none;
         vm.prank(keeper);
-        (uint octPaid, uint collPaid) = IDesk(desk).run(w.liquidatable, none, none);
+        (uint octPaid, uint collPaid) = IDesk(desk).run(w.liquidatable, none, none, true);
         assertEq(octPaid, GAS_COMP, "gas compensation to the caller");
         assertEq(collPaid, 6 ether / 200, "0.5% of the collateral to the caller");
         assertEq(IERC20L(oct).balanceOf(keeper), GAS_COMP);
@@ -67,7 +67,7 @@ contract KeeperDeskTest is LegacyStackBase {
         address[] memory none;
         uint before = IMockWst(wst).balanceOf(keeper);
         vm.prank(keeper);
-        (, uint collPaid) = IDesk(desk).run(none, w.executable, none);
+        (, uint collPaid) = IDesk(desk).run(none, w.executable, none, true);
         assertGt(collPaid, 0, "executor reward paid");
         assertLe(collPaid, 0.02 ether, "reward capped");
         assertEq(IMockWst(wst).balanceOf(keeper) - before, collPaid);
@@ -80,7 +80,7 @@ contract KeeperDeskTest is LegacyStackBase {
         address[] memory alive = new address[](1); alive[0] = alice;   // no plan: nothing to execute
         address[] memory none;
         vm.prank(keeper);
-        (uint octPaid, uint collPaid) = IDesk(desk).run(bogus, alive, none);
+        (uint octPaid, uint collPaid) = IDesk(desk).run(bogus, alive, none, true);
         assertEq(octPaid, 0); assertEq(collPaid, 0);
         assertEq(ITM(tm).getTroveStatus(alice), 1, "alice untouched");
     }
@@ -97,9 +97,25 @@ contract KeeperDeskTest is LegacyStackBase {
         assertEq(w.skimmable[0], alice);
         assertGt(w.octReward, 0);
         address[] memory none;
-        (uint octPaid,) = IDesk(desk).run(none, none, w.skimmable);
+        (uint octPaid,) = IDesk(desk).run(none, none, w.skimmable, true);
         assertGe(octPaid, w.octReward);                                 // the run accrues 91 days of interest into the inventory first
         assertEq(IERC20L(oct).balanceOf(address(this)), octPaid);
         assertEq(IDesk(desk).pending(50).skimmable.length, 0);          // done for this quarter
+    }
+
+    function test_reserveHousekeepingIsItsOwnCategory() public {
+        IDesk.Pending memory w = IDesk(desk).pending(50);
+        assertFalse(w.tend, "nothing above target");
+        vm.prank(alice); IBuffer(buffer).fill(100 ether);               // far above the target: a surplus is releasable
+        vm.warp(block.timestamp + 1 days);
+        w = IDesk(desk).pending(50);
+        assertTrue(w.tend, "a release is due");
+        address[] memory none;
+        uint pot0 = _pot();
+        IDesk(desk).run(none, none, none, false);                       // a liquidation-only caller pays for nothing else
+        assertEq(_pot(), pot0, "no release without tend");
+        IDesk(desk).run(none, none, none, true);
+        assertLt(_pot(), pot0, "the surplus went to the sink");
+        assertFalse(IDesk(desk).pending(50).tend, "and the day's release is done");
     }
 }

@@ -109,7 +109,7 @@ contract Deploy is Script {
         a.stack = _deploy("src/testnet/MockStack.sol:MockStack");
         a.auction = _deployArgs("src/periphery/BurnAuction.sol:BurnAuction", abi.encode(a.stack, a.wst, uint(0.5 ether), uint(1000e18)));
         a.pol = a.pool != address(0)
-            ? _deployArgs("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(a.wst, a.oct, a.buffer, a.feed, a.pool, npm, a.auction))
+            ? _deployArgs("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(a.wst, a.oct, a.buffer, a.feed, a.pool, npm))
             : a.auction;
         a.splitter = _deployArgs("src/periphery/SurplusSplitter.sol:SurplusSplitter", abi.encode(a.wst, a.auction, a.pol));
         a.rewards = _deployArgs("src/periphery/ReserveRewards.sol:ReserveRewards", abi.encode(a.stack, a.buffer, uint(1e18) / uint(1 days))); // 1 STACK per wstETH per day

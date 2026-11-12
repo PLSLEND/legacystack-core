@@ -11,22 +11,46 @@ interface IAuction {
 }
 interface ISplitter { function split() external returns (uint, uint); function pending() external view returns (uint); }
 interface IRewards { function claimable(address) external view returns (uint); function claim() external returns (uint); function paidPoints(address) external view returns (uint); }
-interface IPol { function work() external returns (uint); function octAtOrAbovePar() external view returns (bool); function positionCount() external view returns (uint); function totalCollToAuction() external view returns (uint); function totalOctDeposited() external view returns (uint); }
+interface IPol {
+    function work() external returns (uint); function harvest() external returns (uint); function octAtOrAbovePar() external view returns (bool);
+    function positionCount() external view returns (uint); function totalCollReturned() external view returns (uint); function totalOctDeposited() external view returns (uint);
+    function totalOctHarvested() external view returns (uint); function failedSince() external view returns (uint64);
+}
+interface ISwapCallback { function uniswapV3SwapCallback(int256, int256, bytes calldata) external; }
 
 /// A stand-in for the Uniswap v3 pool and position manager: enough surface for the keeper's rule and failure path.
 contract MockPool {
     address public token0; address public token1; uint24 public fee = 500; int24 public tickSpacing = 10;
     int24 public tick; bool public observeFails = true;
+    uint160 public lastLimit; int256 public lastAmount; bool public lastZeroForOne;
     constructor(address a, address b) { (token0, token1) = a < b ? (a, b) : (b, a); }
     function setTick(int24 t) external { tick = t; }
+    /// A one-to-one swap at par: the caller pays the input in the callback, the pool pays the output from its balance.
+    function swap(address recipient, bool zeroForOne, int256 amountSpecified, uint160 limit, bytes calldata) external returns (int256 amount0, int256 amount1) {
+        lastLimit = limit; lastAmount = amountSpecified; lastZeroForOne = zeroForOne;
+        (amount0, amount1) = zeroForOne ? (amountSpecified, -amountSpecified) : (-amountSpecified, amountSpecified);
+        address outToken = zeroForOne ? token1 : token0;
+        uint before = IERC20T(zeroForOne ? token0 : token1).balanceOf(address(this));
+        require(IERC20T(outToken).transfer(recipient, uint(amountSpecified)), "out");
+        ISwapCallback(msg.sender).uniswapV3SwapCallback(amount0, amount1, "");
+        require(IERC20T(zeroForOne ? token0 : token1).balanceOf(address(this)) >= before + uint(amountSpecified), "unpaid");
+    }
     function slot0() external view returns (uint160, int24, uint16, uint16, uint16, uint8, bool) { return (0, tick, 0, 0, 0, 0, true); }
     function observe(uint32[] calldata) external view returns (int56[] memory, uint160[] memory) { require(!observeFails, "OLD"); int56[] memory c = new int56[](2); uint160[] memory s = new uint160[](2); return (c, s); }
     function increaseObservationCardinalityNext(uint16) external {}
 }
 contract MockNPM {
     bool public fails; uint public minted; uint public lastAmount0; uint public lastAmount1; int24 public lastLower; int24 public lastUpper;
+    address public t0; address public t1; uint public fee0; uint public fee1;   // fees waiting on every position
     struct MintParams { address token0; address token1; uint24 fee; int24 tickLower; int24 tickUpper; uint amount0Desired; uint amount1Desired; uint amount0Min; uint amount1Min; address recipient; uint deadline; }
+    struct CollectParams { uint tokenId; address recipient; uint128 amount0Max; uint128 amount1Max; }
     function setFails(bool f) external { fails = f; }
+    function setFees(address a, address b, uint f0, uint f1) external { t0 = a; t1 = b; fee0 = f0; fee1 = f1; }
+    function collect(CollectParams calldata p) external returns (uint amount0, uint amount1) {
+        (amount0, amount1) = (fee0, fee1); fee0 = 0; fee1 = 0;
+        if (amount0 > 0) require(IERC20T(t0).transfer(p.recipient, amount0), "fee0");
+        if (amount1 > 0) require(IERC20T(t1).transfer(p.recipient, amount1), "fee1");
+    }
     function mint(MintParams calldata p) external returns (uint tokenId, uint128, uint, uint) {
         require(!fails, "pool is dead");
         // pull the tokens like the real one does
@@ -36,11 +60,11 @@ contract MockNPM {
         return (minted, 0, p.amount0Desired, p.amount1Desired);
     }
 }
-interface IERC20T { function transferFrom(address, address, uint) external returns (bool); }
+interface IERC20T { function transferFrom(address, address, uint) external returns (bool); function transfer(address, uint) external returns (bool); function balanceOf(address) external view returns (uint); function mint(address, uint) external; }
 
 contract SinksTest is LegacyStackBase {
     address stack; address auction; address splitter; address rewards; address pol; MockPool poolMock; MockNPM npmMock;
-    address usde = address(0xD0E);              // any address for token ordering
+    address usde;                               // a test counter-asset
     address buyer = address(0xB0DE);
     uint constant LOT = 0.5 ether;
     uint constant START = 1000e18;              // 1,000 STACK per wstETH to begin with
@@ -51,9 +75,10 @@ contract SinksTest is LegacyStackBase {
         vm.warp(1_700_000_000);
         stack = deployCode("src/testnet/MockStack.sol:MockStack");
         auction = deployCode("src/periphery/BurnAuction.sol:BurnAuction", abi.encode(stack, wst, LOT, START));
+        usde = deployCode("src/testnet/MockUSDe.sol:MockUSDe");
         poolMock = new MockPool(oct, usde);
         npmMock = new MockNPM();
-        pol = deployCode("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(wst, oct, buffer, pf, address(poolMock), address(npmMock), auction));
+        pol = deployCode("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(wst, oct, buffer, pf, address(poolMock), address(npmMock)));
         splitter = deployCode("src/periphery/SurplusSplitter.sol:SurplusSplitter", abi.encode(wst, auction, pol));
         rewards = deployCode("src/periphery/ReserveRewards.sol:ReserveRewards", abi.encode(stack, buffer, RATE));
         IStackT(stack).mint(buyer, 100_000e18);
@@ -123,7 +148,7 @@ contract SinksTest is LegacyStackBase {
 
     // --- POL keeper ---
 
-    function test_polWaitsBelowParDepositsAtParAndFallsBackToTheAuction() public {
+    function test_polWaitsBelowParDepositsAtParAndKeepsWaitingWhenTheVenueFails() public {
         vm.prank(carol); IMockWst(wst).transfer(pol, 1 ether);
         bool octIs0 = poolMock.token0() == oct;
         poolMock.setTick(octIs0 ? int24(-50) : int24(50));           // OCT below par
@@ -142,15 +167,66 @@ contract SinksTest is LegacyStackBase {
         assertEq(IERC20L(oct).balanceOf(address(npmMock)), 500e18);  // one-sided: all OCT
         assertEq(octIs0 ? npmMock.lastAmount1() : npmMock.lastAmount0(), 0);
         if (octIs0) { assertGt(npmMock.lastLower(), 0); } else { assertLt(npmMock.lastUpper(), 1); }
-        // the venue dies: the conversion is undone and the wstETH goes to the auction
+        // the venue dies: the conversion is undone and the wstETH waits here for the next run
         npmMock.setFails(true);
         _open(carol, 100 ether, 100000e18);                            // fresh inventory
         uint inv1 = _inventory(); uint left = IMockWst(wst).balanceOf(pol);
         IPol(pol).work();
-        assertEq(_inventory(), inv1);                                  // nothing bought
+        assertEq(_inventory(), inv1, "nothing bought");
+        assertEq(IMockWst(wst).balanceOf(pol), left, "the wstETH stays with the keeper");
+        assertGt(IPol(pol).failedSince(), 0);
+        assertEq(IPol(pol).totalCollReturned(), 0);
+        // still dead after 89 days: still waiting; after 90: back to the reserve pot, nothing thrown away
+        vm.warp(block.timestamp + 89 days);
+        IPol(pol).work();
+        assertEq(IMockWst(wst).balanceOf(pol), left);
+        vm.warp(block.timestamp + 1 days + 1);
+        uint potBefore = _pot();
+        IPol(pol).work();
         assertEq(IMockWst(wst).balanceOf(pol), 0);
-        assertEq(IPol(pol).totalCollToAuction(), left);
-        assertEq(IMockWst(wst).balanceOf(auction), left);
-        assertFalse(IAuction(auction).empty());
+        assertEq(_pot(), potBefore + left, "returned to the reserve");
+        assertEq(IPol(pol).totalCollReturned(), left);
+        assertEq(IPol(pol).failedSince(), 0);
+        assertEq(IMockWst(wst).balanceOf(auction), 0, "the auction only gets what the splitter sends");
+        // the venue comes back: a new failure spell starts from zero
+        vm.prank(carol); IMockWst(wst).transfer(pol, 0.5 ether);
+        IPol(pol).work();
+        assertGt(IPol(pol).failedSince(), 0);
+        npmMock.setFails(false);
+        IPol(pol).work();
+        assertEq(IPol(pol).failedSince(), 0, "healthy again");
+        assertEq(IPol(pol).positionCount(), 2);
+    }
+
+    function test_polHarvestSendsFeesToTheReserveAndBuysOctOnlyAtOrBelowPar() public {
+        vm.prank(carol); IMockWst(wst).transfer(pol, 1 ether);
+        poolMock.setTick(0);
+        IPol(pol).work();                                              // one position
+        // the position earned 10 OCT and 20 USDe of fees; the pool holds OCT to sell
+        IERC20T(usde).mint(address(npmMock), 20e18);
+        vm.prank(bob); IERC20L(oct).transfer(address(npmMock), 10e18);
+        vm.prank(bob); IERC20L(oct).transfer(address(poolMock), 100e18);
+        bool octIs0 = poolMock.token0() == oct;
+        npmMock.setFees(poolMock.token0(), poolMock.token1(), octIs0 ? 10e18 : 20e18, octIs0 ? 20e18 : 10e18);
+        // OCT above par: the USDe waits, the OCT fees go to the reserve
+        poolMock.setTick(octIs0 ? int24(30) : int24(-30));
+        uint inv0 = _inventory();
+        uint toReserve = IPol(pol).harvest();
+        assertEq(toReserve, 10e18);
+        assertEq(_inventory(), inv0 + 10e18);
+        assertEq(IERC20T(usde).balanceOf(pol), 20e18, "USDe waits for par");
+        assertEq(IPol(pol).totalOctHarvested(), 10e18);
+        // at par: the waiting USDe buys OCT one-to-one, capped at 1% over par, and the OCT joins the inventory
+        poolMock.setTick(0);
+        toReserve = IPol(pol).harvest();
+        assertEq(toReserve, 20e18);
+        assertEq(_inventory(), inv0 + 30e18);
+        assertEq(IERC20T(usde).balanceOf(pol), 0);
+        assertEq(IERC20T(usde).balanceOf(address(poolMock)), 20e18, "the pool was paid");
+        assertEq(poolMock.lastZeroForOne(), !octIs0, "sells the counter token");
+        assertEq(uint(poolMock.lastLimit()), octIs0 ? uint(79625275426524748796330556127) : uint(78833030112140176575862854578), "never more than 1% over par");
+        assertEq(IPol(pol).totalOctHarvested(), 30e18);
+        // nothing to collect: a harvest is a no-op, never a revert
+        assertEq(IPol(pol).harvest(), 0);
     }
 }

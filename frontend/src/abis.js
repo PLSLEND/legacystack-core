@@ -95,6 +95,10 @@ export const polAbi = parseAbi([
   'function positionCount() view returns (uint256)',
   'function totalOctDeposited() view returns (uint256)',
   'function totalCollToAuction() view returns (uint256)',
+  'function totalCollReturned() view returns (uint256)',
+  'function totalOctHarvested() view returns (uint256)',
+  'function failedSince() view returns (uint64)',
+  'function harvest() returns (uint256)',
 ]);
 
 export const rewardsAbi = parseAbi([
@@ -154,9 +158,9 @@ export const wstAbi = parseAbi([
 ]);
 
 export const keeperDeskAbi = parseAbi([
-  'struct Pending { uint256 price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint256 octReward; uint256 collReward; }',
+  'struct Pending { uint256 price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint256 octReward; uint256 collReward; bool tend; }',
   'function pending(uint256 maxScan) view returns (Pending)',
-  'function run(address[] liquidate, address[] execute, address[] skim) returns (uint256 octPaid, uint256 collPaid)',
+  'function run(address[] liquidate, address[] execute, address[] skim, bool tend) returns (uint256 octPaid, uint256 collPaid)',
   'function skimmable(address owner) view returns (uint256)',
 ]);
 

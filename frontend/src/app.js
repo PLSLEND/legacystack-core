@@ -225,11 +225,17 @@ async function refreshSinks() {
   $('au-sink').textContent = pending > 0n ? `${fmt(pending, 4)} wstETH to split on the next desk run` : 'nothing';
   $('btn-buy-lot').disabled = empty || lot === 0n;
   if (pol.toLowerCase() === D.burnAuction.toLowerCase()) { $('au-pol').textContent = 'no market pool on this chain: both halves burn'; return; }
-  const [par, n, octIn, toAuction] = await Promise.all([
-    read(pol, A.polAbi, 'octAtOrAbovePar'), read(pol, A.polAbi, 'positionCount'), read(pol, A.polAbi, 'totalOctDeposited'), read(pol, A.polAbi, 'totalCollToAuction'),
+  const [par, n, octIn, toAuction, returned, harvested, failedSince] = await Promise.all([
+    read(pol, A.polAbi, 'octAtOrAbovePar'), read(pol, A.polAbi, 'positionCount'), read(pol, A.polAbi, 'totalOctDeposited'), read(pol, A.polAbi, 'totalCollToAuction').catch(() => 0n),
+    read(pol, A.polAbi, 'totalCollReturned').catch(() => 0n), read(pol, A.polAbi, 'totalOctHarvested').catch(() => null), read(pol, A.polAbi, 'failedSince').catch(() => 0n),
   ]);
   const held = await read(D.wstETH, A.erc20Abi, 'balanceOf', [pol]);
-  $('au-pol').textContent = `${n} position${n === 1n ? '' : 's'}, ${fmt(octIn, 0)} OCT placed · ${fmt(held, 4)} wstETH waiting (${par ? 'OCT at or above par: deploys on the next run' : 'OCT below par: waiting'})${toAuction > 0n ? ` · ${fmt(toAuction, 4)} wstETH went to the auction when the pool failed` : ''}`;
+  const notes = [];
+  if (harvested !== null) notes.push(`${fmt(harvested, 2)} OCT of pool fees harvested to the reserve`);
+  if (failedSince > 0n) notes.push(`the pool has been failing since ${date(failedSince)}; the wstETH waits, after 90 days it returns to the reserve`);
+  if (returned > 0n) notes.push(`${fmt(returned, 4)} wstETH returned to the reserve after a dead spell`);
+  if (toAuction > 0n) notes.push(`${fmt(toAuction, 4)} wstETH went to the auction when the pool failed`);
+  $('au-pol').textContent = `${n} position${n === 1n ? '' : 's'}, ${fmt(octIn, 0)} OCT placed · ${fmt(held, 4)} wstETH waiting (${par ? 'OCT at or above par: deploys on the next run' : 'OCT below par: waiting'})${notes.length ? ' · ' + notes.join(' · ') : ''}`;
 }
 async function refreshDeposit() {
   if (!me) return;
@@ -363,21 +369,28 @@ async function refreshDesk() {
     $('k-liq').textContent = desk.liquidatable.length ? `${desk.liquidatable.length} (${desk.liquidatable.map(short).join(', ')})` : 'none';
     $('k-exe').textContent = desk.executable.length ? `${desk.executable.length} (${desk.executable.map(short).join(', ')})` : 'none';
     $('k-skim').textContent = desk.skimmable.length ? `${desk.skimmable.length} (${desk.skimmable.map(short).join(', ')})` : 'none due';
+    $('k-tend').textContent = desk.tend ? 'a release, a split or a pool deposit is due' : 'nothing due';
     const any = desk.octReward > 0n || desk.collReward > 0n;
-    $('k-reward').textContent = any ? `≈ ${fmt(desk.octReward, 0)} OCT + ${fmt(desk.collReward, 4)} wstETH` : 'interest accrual and reserve release only (no reward)';
+    $('k-reward').textContent = any ? `≈ ${fmt(desk.octReward, 0)} OCT + ${fmt(desk.collReward, 4)} wstETH` : 'none pending';
     $('k-reward').style.color = any ? 'var(--gold-2)' : '';
+    $('btn-desk-liq').disabled = desk.liquidatable.length === 0;
+    $('btn-desk-tend').disabled = !desk.tend;
   } catch (e) { console.error(e); $('k-liq').textContent = '—'; }
 }
-async function runDesk(ev) {
-  ev.preventDefault();
+// Three jobs, three buttons: each transaction carries only its own calls (LS_06 #169)
+async function runDesk(category) {
   if (isZero(D.keeperDesk)) { toast('The desk is not deployed on this chain.', 'bad'); return; }
-  const extra = $('ex-addr').value.trim();
-  if (extra && !looksLikeAddress(extra)) { toast('That is not an address.', 'bad'); return; }
-  const liq = desk ? [...desk.liquidatable] : [];
-  const exe = desk ? [...desk.executable] : [];
-  const skim = desk ? [...desk.skimmable] : [];
-  if (extra && !exe.map((a) => a.toLowerCase()).includes(extra.toLowerCase())) exe.push(addr(extra));
-  await send('Run the desk', () => writePadded(D.keeperDesk, A.keeperDeskAbi, 'run', [liq, exe, skim]));
+  let liq = [], exe = [], skim = [], tend = false, label = '';
+  if (category === 'liq') { liq = desk ? [...desk.liquidatable] : []; label = 'Liquidate'; if (!liq.length) { toast('Nothing to liquidate.', 'warn'); return; } }
+  if (category === 'estates') {
+    const extra = $('ex-addr').value.trim();
+    if (extra && !looksLikeAddress(extra)) { toast('That is not an address.', 'bad'); return; }
+    exe = desk ? [...desk.executable] : []; skim = desk ? [...desk.skimmable] : [];
+    if (extra && !exe.map((a) => a.toLowerCase()).includes(extra.toLowerCase())) exe.push(addr(extra));
+    label = 'Settle and auto-repay'; if (!exe.length && !skim.length) { toast('No estate is due and no auto-repay is due.', 'warn'); return; }
+  }
+  if (category === 'tend') { tend = true; label = 'Reserve housekeeping'; }
+  await send(label, () => writePadded(D.keeperDesk, A.keeperDeskAbi, 'run', [liq, exe, skim, tend]));
 }
 async function executePreview() {
   const a = $('ex-addr').value.trim(); const p = $('ex-preview'); p.className = 'preview';
@@ -691,7 +704,9 @@ async function boot() {
   $('form-gift').addEventListener('submit', giftCollateral);
   $('form-auto').addEventListener('submit', saveAutoRepay);
   $('btn-skim').addEventListener('click', skimNow);
-  $('form-execute').addEventListener('submit', runDesk);
+  $('form-execute').addEventListener('submit', (ev) => { ev.preventDefault(); runDesk('estates'); });
+  $('btn-desk-liq').addEventListener('click', () => runDesk('liq'));
+  $('btn-desk-tend').addEventListener('click', () => runDesk('tend'));
   $('ex-addr').addEventListener('input', () => executePreview().catch(() => {}));
   $('form-redeem').addEventListener('submit', redeem);
   $('form-buy').addEventListener('submit', buyInventory);

@@ -130,6 +130,25 @@ main { max-width: 1140px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem) 3rem
 .section-head p { color: var(--ink-2); font-size: 1.02rem; }
 .panel { border-top: 1px solid var(--line-soft); padding-top: 2.6rem; }
 
+/* the animated loop above the four cards: inline SVG, a few kilobytes, paused when motion is reduced */
+.flow { margin: 0.4rem 0 1.6rem; padding: 0.6rem 0 0; }
+.flow-svg { display: block; width: 100%; max-width: 1000px; height: auto; margin: 0 auto; overflow: visible; }
+.fl-line { fill: none; stroke: #D9AE4B; stroke-width: 1.6; stroke-dasharray: 5 9; opacity: .75; animation: fl-dash 1.4s linear infinite; }
+.fl-dashed { stroke: #AEB8CE; opacity: .55; }
+.fl-return { stroke: #E9C66F; opacity: .6; animation-duration: 2s; }
+.fl-label { font-family: var(--head); font-size: 19px; font-weight: 500; fill: #EEF1F8; text-anchor: middle; }
+.fl-cap { font-family: var(--body); font-size: 13px; fill: #AEB8CE; text-anchor: middle; }
+.fl-small { font-family: var(--head); font-size: 11px; fill: #AEB8CE; text-anchor: middle; letter-spacing: .04em; }
+.fl-gold { fill: #D9AE4B; }
+.fl-ring { transform-box: fill-box; transform-origin: center; animation: fl-spin 24s linear infinite; }
+.fl-pulse { transform-box: fill-box; transform-origin: center; animation: fl-pulse 4s ease-in-out infinite; }
+.fl-gauge { animation: fl-gauge 6s ease-in-out infinite; }
+@keyframes fl-dash { to { stroke-dashoffset: -14; } }
+@keyframes fl-spin { to { transform: rotate(360deg); } }
+@keyframes fl-pulse { 0%, 100% { transform: scale(.92); opacity: .7; } 50% { transform: scale(1.08); opacity: 1; } }
+@keyframes fl-gauge { 0%, 100% { width: 62px; } 50% { width: 74px; } }
+@media (prefers-reduced-motion: reduce) { .fl-line, .fl-ring, .fl-pulse, .fl-gauge { animation: none; } }
+@media (max-width: 720px) { .flow-svg { min-width: 640px; } .flow { overflow-x: auto; } }
 .moves { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.9rem; }
 .move { background: var(--bg-2); border: 1px solid var(--line-soft); border-top: 2px solid var(--gold); border-radius: 6px; padding: 1.3rem 1.2rem 1.1rem; }
 .move-num { font-family: var(--head); color: var(--gold); font-size: 0.72rem; letter-spacing: 0.18em; margin-bottom: 0.6rem; white-space: nowrap; }
@@ -172,10 +191,22 @@ form label.has-max input { padding-right: 4.2rem; }
 .max { position: absolute; right: 7px; bottom: 7px; font-family: var(--head); font-size: 0.64rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; line-height: 1;
   color: var(--gold); background: rgba(217,174,75,0.08); border: 1px solid rgba(217,174,75,0.35); border-radius: 3px; padding: 0.32rem 0.5rem; cursor: pointer; transition: all 0.15s ease; }
 .max:hover { background: rgba(217,174,75,0.18); color: var(--gold-2); border-color: var(--gold); }
-.watch { background: none; border: 0; padding: 0; margin-top: 0.35rem; cursor: pointer; font-family: var(--body); font-size: 0.74rem; color: var(--ink-3); text-decoration: underline dotted; text-underline-offset: 3px; align-self: flex-start; }
+/* amount fields: no system spinners; the Max button is the only control */
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+/* dropdowns in the site's own dress: dark field, gold chevron, the same border as the inputs */
+form select { display: block; width: 100%; margin-top: 0.35rem; background: var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5l5 5 5-5' fill='none' stroke='%23D9AE4B' stroke-width='1.6' stroke-linecap='round'/></svg>") no-repeat right 0.8rem center;
+  color: var(--ink); border: 1px solid rgba(174,184,206,0.25); border-radius: 4px; padding: 0.6rem 2.4rem 0.6rem 0.75rem; font-size: 0.95rem; font-family: var(--body); line-height: 1.3;
+  appearance: none; -webkit-appearance: none; cursor: pointer; }
+form select:focus { outline: none; border-color: var(--gold); }
+form select option { background: var(--bg-2); color: var(--ink); }
+/* the wallet icon: show a token in the wallet */
+.watch { background: none; border: 0; padding: 0.15rem; margin: 0; cursor: pointer; color: var(--ink-3); display: inline-flex; align-items: center; vertical-align: middle; border-radius: 3px; transition: color 0.15s ease; }
+.watch .ico { width: 15px; height: 15px; display: block; }
 .watch:hover { color: var(--gold-2); }
-.watch-row { margin-top: 0.7rem; } .watch-row .watch { margin: 0 0.2rem; font-size: 0.86rem; }
-.actions .watch { align-self: center; margin: 0 0 0 0.3rem; }
+.stat-label { display: flex; align-items: center; justify-content: space-between; gap: 0.4rem; }
+.stat-label .watch { margin: -0.2rem -0.3rem -0.2rem 0; }
+.actions .watch { margin-left: -0.25rem; margin-right: 0.2rem; }
 form input::placeholder { color: var(--ink-3); }
 label.check { display: flex; align-items: center; gap: 0.5rem; }
 label.check input { width: auto; margin: 0; accent-color: var(--gold); }
@@ -214,7 +245,7 @@ label.check input { width: auto; margin: 0; accent-color: var(--gold); }
 .step.is-done { color: var(--ink-2); border-bottom-color: rgba(217,174,75,0.5); }
 .step.is-done span { background: var(--gold); color: #140F03; border-color: var(--gold); }
 .label-btn { display: flex; align-items: flex-end; padding-bottom: 0.75rem; }
-.label-btn .btn { width: 100%; }
+.label-btn .btn { width: 100%; white-space: nowrap; }
 .meter { height: 6px; border-radius: 3px; background: rgba(174,184,206,0.15); margin: 0.9rem 0 0.4rem; overflow: hidden; }
 .meter-bar { height: 100%; width: 0; border-radius: 3px; background: linear-gradient(90deg, #3D63F5, var(--gold)); transition: width 0.25s ease; }
 .meter-bar.full { background: linear-gradient(90deg, var(--gold), var(--gold-2)); }

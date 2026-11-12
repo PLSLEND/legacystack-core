@@ -38,8 +38,8 @@ interface IDeployDP { function setAddresses(address,address,address) external; }
 interface IDeployCSP { function setAddresses(address,address,address,address) external; }
 interface IDeploySorted { function setParams(uint,address,address) external; }
 interface IDeployHint { function setAddresses(address,address) external; }
-interface IDeployBuffer { function setAddresses(address,address,address,address,address,address) external; }
-interface IDeployRegistry { function setAddresses(address,address,address,address,address,address) external; }
+interface IDeployBuffer { function setAddresses(address,address,address,address,address,address,address) external; }
+interface IDeployRegistry { function setAddresses(address,address,address,address,address,address,address) external; }
 interface IDeployAgg { function setDecimals(uint8) external; function setPrice(int) external; function setPrevPrice(int) external; function setUpdateTime(uint) external; function setPrevUpdateTime(uint) external; function setLatestRoundId(uint80) external; function setPrevRoundId(uint80) external; }
 interface IDeployWst { function mint(address,uint) external; function approve(address,uint) external returns (bool); function transfer(address,uint) external returns (bool); }
 interface IDeployPol { function seed() external returns (uint); }
@@ -54,7 +54,7 @@ contract Deploy is Script {
     struct Addrs {
         address tm; address bo; address sp; address ap; address dp; address csp; address gas; address st; address hh; address mtg;
         address oct; address wst; address feed; address buffer; address registry; address issuance; address agg;
-        address desk; address usde; address pool;
+        address desk; address usde; address pool; address lpDesk;
         address stack; address auction; address pol; address splitter; address rewards;
     }
 
@@ -123,9 +123,13 @@ contract Deploy is Script {
         IDeployDP(a.dp).setAddresses(a.tm, a.ap, a.wst);
         IDeployCSP(a.csp).setAddresses(a.bo, a.tm, a.ap, a.wst);
         IDeployHint(a.hh).setAddresses(a.st, a.tm);
-        IDeployBuffer(a.buffer).setAddresses(a.tm, a.bo, a.feed, a.oct, a.wst, a.splitter);
-        IDeployRegistry(a.registry).setAddresses(a.bo, a.tm, a.sp, a.csp, a.oct, a.wst);
+        IDeployBuffer(a.buffer).setAddresses(a.tm, a.bo, a.feed, a.oct, a.wst, a.splitter, a.registry);
+        IDeployRegistry(a.registry).setAddresses(a.bo, a.tm, a.sp, a.csp, a.oct, a.wst, a.buffer);
         a.desk = _deployArgs("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(a.tm, a.bo, a.st, a.feed, a.buffer, a.registry, a.oct, a.wst));
+        // Liquidity through the protocol (#171): OCT/USDe positions held for their owners, inherited with the plan
+        if (a.pool != address(0)) {
+            a.lpDesk = _deployArgs("src/periphery/LiquidityDesk.sol:LiquidityDesk", abi.encode(a.oct, a.pool, npm, a.registry));
+        }
 
         // Seed: a deployer vault (its OCT seeds the pool below) and 1 OCT in the Stability Pool (the pool's
         // permanent minimum).
@@ -172,6 +176,7 @@ contract Deploy is Script {
         vm.serializeAddress(json, "redemptionBuffer", a.buffer);
         vm.serializeAddress(json, "successionRegistry", a.registry);
         vm.serializeAddress(json, "keeperDesk", a.desk);
+        vm.serializeAddress(json, "liquidityDesk", a.lpDesk);
         vm.serializeAddress(json, "usde", a.usde);
         vm.serializeAddress(json, "octUsdePool", a.pool);
         vm.serializeAddress(json, "uniswapPositionManager", npm);

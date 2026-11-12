@@ -70,8 +70,8 @@ contract PriceFeedTest is LegacyStackBase {
         IDP(dp).setAddresses(tm, ap, wst);
         ICSP(csp).setAddresses(bo, tm, ap, wst);
         IHintH(hh).setAddresses(st, tm);
-        IBuffer(buffer).setAddresses(tm, bo, feed, oct, wst, surplusSink);
-        IRegistry(registry).setAddresses(bo, tm, sp, csp, oct, wst);
+        IBuffer(buffer).setAddresses(tm, bo, feed, oct, wst, surplusSink, registry);
+        IRegistry(registry).setAddresses(bo, tm, sp, csp, oct, wst, buffer);
         address[3] memory us = [alice, bob, carol];
         for (uint i = 0; i < 3; i++) { vm.prank(us[i]); IMockWst(wst).approve(bo, type(uint).max); vm.prank(us[i]); IMockWst(wst).approve(buffer, type(uint).max); }
     }

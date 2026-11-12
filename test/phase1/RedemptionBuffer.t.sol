@@ -199,3 +199,114 @@ contract RedemptionBufferTest is LegacyStackBase {
 }
 
 interface IBufferServe { function serveRedemption(address, uint, uint, uint) external returns (uint); }
+
+/// Fee sharing with reserve depositors and the deposit's succession (LS_06 #171).
+contract ReserveFeeSharingTest is LegacyStackBase {
+
+    function test_depositorsEarnTheirShareOfRedemptionFeesAtLeastHalf() public {
+        _open(alice, 4 ether, 4000e18);
+        _open(bob, 50 ether, 20000e18);
+        // the protocol's own pot is 30 wstETH (a fill), carol deposits 10: her share of the pot is 25%, floored at 50%
+        vm.prank(dave); IBuffer(buffer).fill(30 ether);
+        vm.prank(carol); IBuffer(buffer).deposit(10 ether);
+        assertEq(IBuffer(buffer).depositorsShareBps(), 5000);
+        assertEq(IBuffer(buffer).feesOf(carol), 0);
+        // a redemption served by the reserve: the fee stays in the pot, half of it set aside for carol
+        uint potBefore = IBuffer(buffer).pot();
+        _redeem(bob, 5000e18);
+        uint rate = ITM(tm).getRedemptionRate();
+        uint fee = 2.5 ether * rate / 1e18;
+        assertEq(IBuffer(buffer).feesOwed(), fee / 2);
+        assertApproxEqAbs(IBuffer(buffer).feesOf(carol), fee / 2, 1e3);
+        assertEq(IBuffer(buffer).totalFeesShared(), fee / 2);
+        // the reserve's capital counts the fee, minus what is owed
+        assertEq(IBuffer(buffer).pot(), potBefore - (2.5 ether - fee) - fee / 2);
+        assertEq(_pot(), IBuffer(buffer).pot() + fee / 2, "held = capital + owed");
+        // claimable at once, in wstETH, whatever the target says
+        uint before = IMockWst(wst).balanceOf(carol);
+        vm.prank(carol); uint got = IBuffer(buffer).claimFees();
+        assertApproxEqAbs(got, fee / 2, 1e3);
+        assertEq(IMockWst(wst).balanceOf(carol), before + got);
+        assertEq(IBuffer(buffer).feesOf(carol), 0);
+        assertApproxEqAbs(IBuffer(buffer).feesOwed(), 0, 1e3, "dust only");
+        vm.prank(carol); vm.expectRevert(bytes("RedemptionBuffer: nothing to claim"));
+        IBuffer(buffer).claimFees();
+    }
+
+    function test_shareFollowsTheDepositorsPartOfThePotAboveHalf() public {
+        _open(alice, 4 ether, 4000e18);
+        _open(bob, 50 ether, 20000e18);
+        // carol holds 80% of the pot: she gets 80% of the fees; dave, who deposited later, gets his part of what came after
+        vm.prank(dave); IBuffer(buffer).fill(2 ether);
+        vm.prank(carol); IBuffer(buffer).deposit(8 ether);
+        assertEq(IBuffer(buffer).depositorsShareBps(), 8000);
+        _redeem(bob, 5000e18);
+        uint fee1 = 2.5 ether * ITM(tm).getRedemptionRate() / 1e18;
+        assertApproxEqAbs(IBuffer(buffer).feesOf(carol), fee1 * 8000 / 10000, 1e3);
+        vm.warp(block.timestamp + 2 days);                 // the baseRate decays, the next fee is a fresh one
+        vm.prank(dave); IBuffer(buffer).deposit(8 ether);  // now two depositors, 16 of ~17.3 in the pot
+        _redeem(bob, 5000e18);
+        uint fee2 = 2.5 ether * ITM(tm).getRedemptionRate() / 1e18;
+        uint share = IBuffer(buffer).depositorsShareBps();
+        assertGt(share, 9000);
+        uint part2 = fee2 * share / 10000;
+        assertApproxEqAbs(IBuffer(buffer).feesOf(dave), part2 / 2, 1e3, "dave: half of the second fee");
+        assertApproxEqAbs(IBuffer(buffer).feesOf(carol), fee1 * 8000 / 10000 + part2 / 2, 1e3, "carol: the first, half of the second");
+    }
+
+    function test_vaultRedemptionFeeAndOfferPremiumAreSharedToo() public {
+        _open(alice, 4 ether, 4000e18);   // lowest ICR, redeemed from
+        _open(bob, 50 ether, 20000e18);
+        vm.prank(carol); IBuffer(buffer).deposit(1 ether);
+        // the pot holds only carol's 1 wstETH ($2,000): the redemption goes to the vaults beyond that capacity;
+        // the fee of the vault part arrives in the pot and is shared (carol is 100% of the pot: all of it)
+        _redeem(bob, 5000e18);
+        uint fee = IBuffer(buffer).feesOwed();
+        assertGt(fee, 0);
+        assertEq(IBuffer(buffer).feesOf(carol), fee);
+        // the standing offer: bob buys 100 OCT of inventory at par + 0.5%; the premium is shared the same way
+        uint quote = IBuffer(buffer).quoteInventory(100e18, _price());
+        uint par = 100e18 * 1e18 / _price();
+        vm.prank(bob); IMockWst(wst).approve(buffer, type(uint).max);
+        vm.prank(bob); IBuffer(buffer).buyInventory(100e18, quote);
+        assertEq(IBuffer(buffer).feesOf(carol), fee + (quote - par), "the premium above par, all of it");
+    }
+
+    function test_depositPassesToTheHeirsAsADepositWithItsFeesAndPoints() public {
+        _open(bob, 50 ether, 20000e18);
+        _open(alice, 4 ether, 4000e18);
+        vm.prank(alice); IBuffer(buffer).deposit(10 ether);
+        address[] memory heirs = new address[](2); heirs[0] = carol; heirs[1] = dave;
+        uint16[] memory bps = new uint16[](2); bps[0] = 7000; bps[1] = 3000;
+        vm.prank(alice); IRegistry(registry).setPlan(heirs, bps, address(0));
+        _redeem(bob, 5000e18);                                 // alice earns fees as the only depositor
+        uint fees = IBuffer(buffer).feesOf(alice);
+        assertGt(fees, 0);
+        uint lock = IBuffer(buffer).lockedUntil(alice);
+        // a year of silence and thirty days of grace; nobody can move the deposit before that
+        vm.expectRevert(bytes("RedemptionBuffer: caller is not the SuccessionRegistry"));
+        IBuffer(buffer).transferDepositForSuccession(alice, carol, 1 ether);
+        vm.warp(block.timestamp + 395 days + 1);
+        uint points = IBuffer(buffer).pointsOf(alice);
+        uint potBefore = _pot();
+        IRegistry(registry).execute(alice);
+        // nothing left the reserve (the settlement even paid collateral in); the deposit, its fees and its
+        // points are the heirs' now, 70/30
+        assertGe(_pot(), potBefore, "nothing left the reserve");
+        assertEq(IBuffer(buffer).depositOf(alice), 0);
+        assertEq(IBuffer(buffer).depositOf(carol), 7 ether);
+        assertEq(IBuffer(buffer).depositOf(dave), 3 ether);
+        assertEq(IBuffer(buffer).totalDeposits(), 10 ether);
+        assertEq(IBuffer(buffer).feesOf(alice), 0);
+        assertApproxEqAbs(IBuffer(buffer).feesOf(carol), fees * 7 / 10, 1);
+        assertApproxEqAbs(IBuffer(buffer).feesOf(dave), fees * 3 / 10, 1);
+        assertApproxEqAbs(IBuffer(buffer).pointsOf(carol), points * 7 / 10, 1e9);
+        assertEq(IBuffer(buffer).lockedUntil(carol), lock, "the heir inherits the lock");
+        // the heirs act for themselves from here: carol claims her fees, and may withdraw once the pot allows
+        vm.prank(carol); uint got = IBuffer(buffer).claimFees();
+        assertApproxEqAbs(got, fees * 7 / 10, 1);
+        (uint8 state,,) = IRegistry(registry).successionState(alice);
+        assertEq(state, 4);
+    }
+
+}

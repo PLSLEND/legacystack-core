@@ -47,6 +47,7 @@
 
 <div class="hero-stage" id="top">
   <img src="assets/hero-stage.webp" alt="" class="hero-art" width="1672" height="941" fetchpriority="high">
+  <div class="hero-shade" aria-hidden="true"></div>
   <div class="hero-lion-wrap">
     <div class="hero-aura" aria-hidden="true"></div>
     <img src="assets/hero-lion.svg" alt="The LegacyStack winged lion" class="hero-lion" width="584" height="515" fetchpriority="high">
@@ -54,17 +55,18 @@
   </div>
   <div class="hero-copy">
     <div class="wordmark">LegacyStack</div>
-    <div class="tagline">Digital Wealth, Credit &amp; Inheritance</div>
+    <div class="tagline tagline-wide">Digital Wealth, Credit &amp; Inheritance</div>
     <div class="rule"><span></span><i></i><span></span></div>
     <h1>Grow. Borrow. Pass&nbsp;it&nbsp;on.</h1>
   </div>
+  <div class="tagline tagline-narrow" aria-hidden="true">Digital Wealth, Credit &amp; Inheritance</div>
 </div>
 
 <main>
 
 <section class="hero">
   <div class="hero-intro">
-    <p class="lede">A fixed-rate credit line against your assets. No middleman: only you and an immutable contract. You keep the asset that grows, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
+    <p class="lede">A fixed-rate credit line against your assets. No middleman: only you and an immutable contract. You keep the asset that grows and keeps earning, you borrow against it instead of selling it, and the vault knows what to do when you are no longer there.</p>
     <div class="hero-actions">
       <a class="btn btn-gold" href="#app">Open the testnet vault</a>
       <a class="btn btn-ghost" href="#strategy">Read the strategy</a>
@@ -73,12 +75,13 @@
 </section>
 
 <section class="glance" aria-label="At a glance">
-  <div class="glance-item"><span class="glance-value">1.5%</span><span class="glance-label">Fixed interest, per year, for the life of the deployment</span></div>
+  <div class="glance-item"><span class="glance-value">1.5%</span><span class="glance-label">Fixed interest, per year, for the life of the deployment. Your collateral keeps earning its staking yield* the whole time</span></div>
   <div class="glance-item"><span class="glance-value">110%</span><span class="glance-label">Minimum collateral ratio; your liquidation price is always on screen</span></div>
   <div class="glance-item"><span class="glance-value">0</span><span class="glance-label">Admin keys. No pause, no upgrade, no rate change, no one to ask</span></div>
   <div class="glance-item"><span class="glance-value inf">∞</span><span class="glance-label">Repayment schedule. Repay when you choose, in part or in full, or not at all while the ratio holds. No instalments, no maturity date</span></div>
   <div class="glance-item"><span class="glance-value">1 year</span><span class="glance-label">Safety lock. One button, pressed once a year, keeps everything in place; only a full year of silence, then thirty days of grace, can start a transfer</span></div>
 </section>
+<p class="footnote">* Staking yield: the reward the Ethereum network pays the validators who secure it, passed to wstETH holders by Lido. It has run between 2% and 5% a year since 2022; the network sets it, not this protocol, and it varies. It accrues inside your vault whether you borrow or not.</p>
 
 <section id="strategy" class="section">
   <div class="section-head">
@@ -95,8 +98,8 @@
     </defs>
 
     <!-- connectors: forward (asset to vault to liquidity to heirs) and the return of the yield -->
-    <path id="fl-p1" class="fl-line" d="M178 130 H318" marker-end="url(#fl-arrow)"/>
-    <path id="fl-p2" class="fl-line" d="M478 130 H618" marker-end="url(#fl-arrow)"/>
+    <path id="fl-p1" class="fl-line" d="M178 130 H308" marker-end="url(#fl-arrow)"/>
+    <path id="fl-p2" class="fl-line" d="M488 130 H618" marker-end="url(#fl-arrow)"/>
     <path id="fl-p3" class="fl-line fl-dashed" d="M782 130 H858" marker-end="url(#fl-arrow)"/>
     <path id="fl-p4" class="fl-line fl-return" d="M700 72 C 700 6, 120 6, 120 70" marker-end="url(#fl-arrow)"/>
 
@@ -107,31 +110,32 @@
       <path d="M0 -24 L17 2 L0 12 L-17 2 Z M0 -24 L0 12" fill="none" stroke="#AEB8CE" stroke-width="1.6" stroke-linejoin="round"/>
       <path d="M-17 7 L0 30 L17 7" fill="none" stroke="#AEB8CE" stroke-width="1.6" stroke-linejoin="round" opacity=".8"/>
       <circle r="47" fill="none" stroke="#D9AE4B" stroke-width="1" stroke-dasharray="3 6" opacity=".55" class="fl-ring"/>
+      <g class="fl-ring" opacity=".9"><circle cx="0" cy="-47" r="3" fill="#E9C66F"/><circle cx="40.7" cy="23.5" r="3" fill="#E9C66F"/><circle cx="-40.7" cy="23.5" r="3" fill="#E9C66F"/></g>
     </g>
     <text x="120" y="212" class="fl-label">Hold</text>
-    <text x="120" y="232" class="fl-cap">wstETH, growing on its own</text>
+    <text x="120" y="232" class="fl-cap">wstETH: it can grow, and it earns on its own</text>
 
     <!-- 2. borrow: the vault with its ratio gauge -->
     <g transform="translate(398 130)">
-      <rect x="-62" y="-46" width="124" height="92" rx="10" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
-      <rect x="-48" y="-32" width="96" height="10" rx="5" fill="#0F1B42"/>
-      <rect x="-48" y="-32" width="62" height="10" rx="5" fill="#3D63F5" class="fl-gauge"/>
+      <rect x="-72" y="-46" width="144" height="92" rx="10" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
+      <rect x="-58" y="-32" width="116" height="10" rx="5" fill="#0F1B42"/>
+      <rect x="-58" y="-32" width="86" height="10" rx="5" fill="#3D63F5" class="fl-gauge"/>
       <text x="0" y="2" class="fl-small">collateral ratio</text>
       <text x="0" y="24" class="fl-small fl-gold">110% floor · no maturity</text>
-      <circle cx="46" cy="-30" r="4" fill="#58C48C"><animate attributeName="opacity" values="1;.3;1" dur="2.4s" repeatCount="indefinite"/></circle>
+      <circle cx="56" cy="-30" r="4" fill="#58C48C"><animate attributeName="opacity" values="1;.3;1" dur="2.4s" repeatCount="indefinite"/></circle>
     </g>
     <text x="398" y="212" class="fl-label">Borrow</text>
-    <text x="398" y="232" class="fl-cap">OCT at 1.5% fixed, for life</text>
+    <text x="398" y="232" class="fl-cap">OCT at 1.5% fixed; the yield can repay it</text>
 
     <!-- 3. deploy: the liquidity at work -->
     <g transform="translate(700 130)">
       <circle cx="-16" cy="0" r="38" fill="#081130" stroke="#3D63F5" stroke-width="2" opacity=".95"/>
       <circle cx="16" cy="0" r="38" fill="#081130" stroke="#D9AE4B" stroke-width="2" opacity=".95" fill-opacity=".6"/>
-      <text x="0" y="5" class="fl-small">at work</text>
+      <text x="0" y="5" class="fl-small">OCT at work</text>
       <circle r="52" fill="none" stroke="#D9AE4B" stroke-width="1" stroke-dasharray="2 7" opacity=".4" class="fl-ring"/>
     </g>
     <text x="700" y="212" class="fl-label">Deploy</text>
-    <text x="700" y="232" class="fl-cap">the yield comes back</text>
+    <text x="700" y="232" class="fl-cap">the pools, more wstETH, or outside</text>
 
     <!-- 4. pass it on: the heirs -->
     <g transform="translate(900 130)">
@@ -145,14 +149,17 @@
       <path d="M30 -34 l3 3 5-6" fill="none" stroke="#140F03" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     </g>
     <text x="900" y="212" class="fl-label">Pass it on</text>
-    <text x="900" y="232" class="fl-cap">one button a year keeps it yours</text>
+    <text x="900" y="232" class="fl-cap">all of it, by your plan</text>
 
-    <!-- the moving value: collateral in, OCT out, yield back -->
+    <!-- the moving value: collateral in (blue) and its staking yield (gold) into the vault, OCT out, OCT back as more wstETH -->
     <circle r="5" fill="#3D63F5"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#fl-p1"/></animateMotion></circle>
+    <circle r="3.5" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".95" begin="1.5s"/><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#fl-p1"/></animateMotion></circle>
+    <text x="248" y="118" class="fl-small">collateral in</text>
+    <text x="248" y="152" class="fl-small fl-gold">its yield repays the debt</text>
     <circle r="5" fill="#D9AE4B" opacity="0"><set attributeName="opacity" to="1" begin="1.5s"/><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#fl-p2"/></animateMotion></circle>
     <circle r="4" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="0.6s"/><animateMotion dur="5s" begin="0.6s" repeatCount="indefinite"><mpath href="#fl-p4"/></animateMotion></circle>
     <circle r="4" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="3.1s"/><animateMotion dur="5s" begin="3.1s" repeatCount="indefinite"><mpath href="#fl-p4"/></animateMotion></circle>
-    <text x="410" y="13" class="fl-cap fl-gold">the yield comes back: it shrinks the debt (auto-repay) or feeds the next layer</text>
+    <text x="410" y="13" class="fl-cap fl-gold">OCT can come back as more wstETH for the vault: a bigger base, a higher ratio</text>
   </svg>
 </figure>
   <div class="moves">
@@ -171,14 +178,14 @@
     <article class="move">
       <div class="move-num">03 · The liquidity works</div>
       <h3>Deploy</h3>
-      <p>The OCT you drew is yours. Inside the protocol it can work in the Stability Pool, earning liquidated collateral at a discount, or in the OCT/USDe pool, earning trading fees. Every position inside the protocol stays inside your succession plan.</p>
-      <p class="move-note">Or take it out. It is a token in your wallet like any other; the vault does not care where it goes, it only watches the ratio.</p>
+      <p>The OCT you drew is yours. Inside the protocol it can earn in the Stability Pool, provide OCT/USDe liquidity, or buy more wstETH for the vault and raise your ratio. Every position inside the protocol stays inside your succession plan.</p>
+      <p class="move-note">Or take it out. It is a token in your wallet like any other; use it wherever you judge best, further down the risk curve if you like. The vault does not care where it goes, it only watches the ratio. What leaves the protocol leaves the plan.</p>
     </article>
     <article class="move">
       <div class="move-num">04 · It passes on</div>
       <h3>Pass it on</h3>
       <p>Name up to ten heirs and their shares. Once a year, press one button: that is your proof of life, and nothing else counts. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault's debt is paid from its own OCT, then from the reserve at its offer price, then by the Stability Pool at 2% over par, and what remains goes directly into your heirs' wallets.</p>
-      <p class="move-note">No custodian, no paperwork, no death certificate. A clock, and a plan you can change at any time.</p>
+      <p class="move-note">No custodian, no paperwork, no death certificate. A clock, and a plan you can change at any time. The vault, your Stability Pool deposit, your reserve deposit and the liquidity you provide through the protocol all pass with it.</p>
     </article>
   </div>
 </section>
@@ -200,7 +207,7 @@
     </article>
     <article class="mech-item">
       <h3>Price feed without keys</h3>
-      <p>ETH/USD from two oracle networks, Chainlink and Chronicle, times Lido's exchange rate: nothing else sets the price of wstETH. If the sources misbehave, the protocol goes reduce-only: repaying, adding collateral, closing and liquidating stay open at the last good price; new risk waits. It heals by itself.</p>
+      <p>ETH/USD from two independent oracle networks, Chainlink and Chronicle, times Lido's own exchange rate. Nothing else sets the price of wstETH, and nobody can switch the feed. Should the sources ever disagree or fall silent, new borrowing simply waits at the last good price while repaying, adding collateral and closing stay open, and lending resumes by itself when they agree again.</p>
     </article>
     <article class="mech-item">
       <h3>Immutable rules</h3>
@@ -240,10 +247,11 @@
           <rect x="-84" y="-50" width="168" height="100" rx="10" fill="#081130" stroke="url(#fl-gb)" stroke-width="2"/>
           <text x="0" y="-28" class="fl-small">collateral ratio</text>
           <rect x="-66" y="-18" width="132" height="12" rx="6" fill="#0F1B42"/>
-          <rect x="-66" y="-18" width="86" height="12" rx="6" fill="#3D63F5" class="fv-gauge"/>
-          <line x1="-40" y1="-24" x2="-40" y2="0" stroke="#E06A6A" stroke-width="1.5"/>
-          <text x="-40" y="12" class="fl-small" style="fill:#E06A6A">110%</text>
-          <text x="0" y="36" class="fl-small fl-gold">below the line: liquidation</text>
+          <rect x="-66" y="-18" width="112" height="12" rx="6" fill="#3D63F5" class="fv-gauge"/>
+          <line x1="-54" y1="-24" x2="-54" y2="0" stroke="#E06A6A" stroke-width="1.5"/>
+          <text x="-54" y="12" class="fl-small" style="fill:#E06A6A">110%</text>
+          <text x="30" y="12" class="fl-small">yours, e.g. 300%</text>
+          <text x="0" y="36" class="fl-small fl-gold">a margin is all it asks</text>
         </g>
         <g transform="translate(434 92)">
           <circle r="28" fill="#081130" stroke="#D9AE4B" stroke-width="2"/>
@@ -384,8 +392,8 @@
   <div class="head-flow">
   <div class="section-head">
     <span class="eyebrow">Succession <em class="tag">testnet</em></span>
-    <h2>Your plan</h2>
-    <p>One plan per wallet. It covers the vault, your Stability Pool deposit and any collateral left behind by a redemption. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you.</p>
+    <h2>Your succession plan</h2>
+    <p>One plan per wallet. It covers the vault, your Stability Pool deposit, your reserve deposit, the liquidity you provide through the protocol, and any collateral left behind by a redemption. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you. Heirs are addresses: one of them can be a second wallet of your own, so the plan also covers lost keys.</p>
   </div>
   <figure class="flow flow-sm" aria-label="Pass it on: one press a year resets the clock; after a year of silence and thirty days of grace the estate goes to the heirs by their shares">
     <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
@@ -494,6 +502,7 @@
       <form id="form-execute">
         <label>Also settle this wallet (optional)<input id="ex-addr" type="text" placeholder="0x…"></label>
         <div class="preview" id="ex-preview">Enter a wallet to read its state.</div>
+        <div class="actions hidden" id="ex-lp-row"><button class="btn btn-ghost" type="button" id="btn-inherit-lp">Hand its liquidity to the heirs</button></div>
         <div class="actions">
           <button class="btn btn-gold" type="button" id="btn-desk-liq">Liquidate</button>
           <button class="btn btn-gold" type="submit" id="btn-desk-estates">Settle and auto-repay</button>
@@ -520,8 +529,8 @@
       </defs>
       <path id="fr-p1" class="fl-line" d="M98 70 H180" marker-end="url(#fr-arrow)"/>
       <path id="fr-p2" class="fl-line fl-dashed" d="M300 70 H382" marker-end="url(#fr-arrow)"/>
-      <path id="fr-p3" class="fl-line fl-return" d="M240 118 V152 H150 V170" marker-end="url(#fr-arrow)"/>
-      <path id="fr-p4" class="fl-line fl-return" d="M240 118 V152 H330 V170" marker-end="url(#fr-arrow)"/>
+      <path id="fr-p3" class="fl-line fl-return fr-gate" d="M240 118 V152 H150 V170" marker-end="url(#fr-arrow)"/>
+      <path id="fr-p4" class="fl-line fl-return fr-gate" d="M240 118 V152 H330 V170" marker-end="url(#fr-arrow)"/>
       <g transform="translate(50 70)">
         <rect x="-44" y="-24" width="88" height="48" rx="8" fill="#081130" stroke="#D9AE4B" stroke-width="2"/>
         <text x="0" y="-3" class="fl-small">fees and</text><text x="0" y="11" class="fl-small">interest</text>
@@ -548,8 +557,9 @@
       <text x="240" y="166" class="fl-small fl-gold" style="font-size:10px">surplus above target</text>
       <circle r="4" fill="#D9AE4B"><animateMotion dur="2.4s" repeatCount="indefinite"><mpath href="#fr-p1"/></animateMotion></circle>
       <circle r="4" fill="#AEB8CE" opacity="0"><set attributeName="opacity" to=".9" begin="1.2s"/><animateMotion dur="2.4s" begin="1.2s" repeatCount="indefinite"><mpath href="#fr-p2"/></animateMotion></circle>
-      <circle r="3.5" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="2s"/><animateMotion dur="3s" begin="2s" repeatCount="indefinite"><mpath href="#fr-p3"/></animateMotion></circle>
-      <circle r="3.5" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="3.5s"/><animateMotion dur="3s" begin="3.5s" repeatCount="indefinite"><mpath href="#fr-p4"/></animateMotion></circle>
+      <!-- the surplus flows only while the level stands above the target line (the level's own 6-second cycle) -->
+      <circle r="3.5" fill="#E9C66F" opacity="0"><animate attributeName="opacity" values="0;0;.9;.9;0;0" keyTimes="0;0.37;0.38;0.84;0.85;1" dur="6s" repeatCount="indefinite"/><animateMotion dur="6s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.37;0.85;1"><mpath href="#fr-p3"/></animateMotion></circle>
+      <circle r="3.5" fill="#E9C66F" opacity="0"><animate attributeName="opacity" values="0;0;.9;.9;0;0" keyTimes="0;0.5;0.51;0.96;0.97;1" dur="6s" repeatCount="indefinite"/><animateMotion dur="6s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.5;0.97;1"><mpath href="#fr-p4"/></animateMotion></circle>
       <text x="240" y="222" class="fl-cap" style="font-size:12px">The reserve: your vault is touched only when it is empty</text>
     </svg>
   </figure>
@@ -593,10 +603,12 @@
   <div class="grid-2">
     <div class="box">
       <h3>Reserve deposit</h3>
-      <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. It earns STACK for every day it serves, paid by the rewards contract while it holds any. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
+      <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. In return you earn what the reserve earns for serving the market, the redemption fees and the standing offer's premium: depositors receive their share of the pot and never less than half, set aside in wstETH and claimable at any time, plus STACK for every day served while the rewards contract holds any. The deposit is part of your succession plan. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
       <dl class="kv">
         <dt>Your reserve deposit</dt><dd id="rd-mine">—</dd>
         <dt>Unlocks</dt><dd id="rd-unlock">—</dd>
+        <dt>Fees earned, to claim</dt><dd id="rd-fees">—</dd>
+        <dt>Depositors' share of fees</dt><dd id="rd-share">—</dd>
         <dt>Time served</dt><dd id="rd-points">—</dd>
         <dt>STACK to claim</dt><dd id="rd-claim">—</dd>
       </dl>
@@ -605,6 +617,7 @@
         <div class="actions">
           <button class="btn btn-gold" type="submit" id="btn-deposit">Deposit</button>
           <button class="btn btn-ghost" type="button" id="btn-withdraw">Withdraw</button>
+          <button class="btn btn-ghost" type="button" id="btn-claim-fees">Claim fees</button>
           <button class="btn btn-ghost" type="button" id="btn-claim-stack">Claim STACK</button>
         </div>
       </form>
@@ -672,10 +685,37 @@
     <div class="stat"><span class="stat-label">Pool holds</span><span id="m-liq" class="stat-value">—</span></div>
     <div class="stat"><span class="stat-label">Venue</span><span id="m-venue" class="stat-value">Uniswap v3 · 0.05%</span></div>
   </div>
-  <div class="actions">
-    <a id="lnk-swap" class="btn btn-gold" href="#" target="_blank" rel="noopener">Trade on Uniswap</a>
-    <a id="lnk-lp" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Provide liquidity</a>
-    <a id="lnk-pool" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Pool contract</a>
+  <div class="grid-2">
+    <div class="box" id="lp-box">
+      <h3>Provide liquidity through the protocol</h3>
+      <p class="small">Put OCT and USDe into the pool through the protocol's liquidity desk and earn the trading fees. The desk holds the position for you in the band 0.98 to 1.02 around par, only you can add to it, collect from it or withdraw it, and it is part of your succession plan: after a year of silence it is unwound and handed to your heirs with everything else. Liquidity added on Uniswap directly is yours alone and passes to nobody.</p>
+      <dl class="kv">
+        <dt>Your position</dt><dd id="lp-mine">—</dd>
+        <dt>Fees booked so far</dt><dd id="lp-owed">—</dd>
+        <dt>USDe in wallet<button type="button" class="watch" data-watch="usde" title="Show USDe in your wallet" aria-label="Show USDe in your wallet"><svg class="ico" aria-hidden="true"><use href="#i-wallet"/></svg></button></dt><dd id="lp-usde">—</dd>
+      </dl>
+      <form id="form-lp">
+        <div class="adjust-row">
+          <label>OCT<input id="lp-oct" type="number" step="any" min="0" placeholder="100"></label>
+          <label>USDe<input id="lp-usde-in" type="number" step="any" min="0" placeholder="100"></label>
+        </div>
+        <div class="preview" id="lp-preview">Equal values of both work best; what the pool cannot place comes straight back.</div>
+        <div class="actions">
+          <button class="btn btn-gold" type="submit" id="btn-lp-add">Add liquidity</button>
+          <button class="btn btn-ghost" type="button" id="btn-lp-collect">Collect fees</button>
+          <button class="btn btn-ghost" type="button" id="btn-lp-withdraw">Withdraw all</button>
+        </div>
+      </form>
+    </div>
+    <div class="box">
+      <h3>Trade</h3>
+      <p class="small">The pool is an ordinary Uniswap v3 pool: trade OCT against USDe there, or watch the arbitrage hold the price. The protocol's own opening liquidity sits in it for good.</p>
+      <div class="actions">
+        <a id="lnk-swap" class="btn btn-gold" href="#" target="_blank" rel="noopener">Trade on Uniswap</a>
+        <a id="lnk-lp" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Uniswap position page</a>
+        <a id="lnk-pool" class="btn btn-ghost" href="#" target="_blank" rel="noopener">Pool contract</a>
+      </div>
+    </div>
   </div>
 </section>
 

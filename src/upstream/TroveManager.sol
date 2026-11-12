@@ -951,6 +951,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         if (totals.totalETHDrawn > 0) {
             totals.ETHFee = _calcRedemptionFee(redemptionRate, totals.totalETHDrawn);
             contractsCache.activePool.sendETH(address(contractsCache.redemptionBuffer), totals.ETHFee);
+            contractsCache.redemptionBuffer.shareRedemptionFee(totals.ETHFee);
             totals.ETHToSendToRedeemer = totals.totalETHDrawn.sub(totals.ETHFee);
 
             // Burn the total LUSD that is cancelled with debt, and send the redeemed ETH to msg.sender

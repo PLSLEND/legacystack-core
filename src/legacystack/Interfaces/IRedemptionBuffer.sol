@@ -22,6 +22,9 @@ interface IRedemptionBuffer {
     event SkimServed(address indexed _owner, uint _octOut, uint _collIn, uint _cut, uint _rest);
     event Deposited(address indexed _depositor, uint _collAmount, uint _lockedUntil);
     event Withdrawn(address indexed _depositor, uint _collAmount);
+    event FeeShared(uint _fee, uint _toDepositors);
+    event FeesClaimed(address indexed _depositor, uint _collAmount);
+    event DepositInherited(address indexed _owner, address indexed _heir, uint _collAmount, uint _fees);
 
     function setAddresses(
         address _troveManagerAddress,
@@ -29,7 +32,8 @@ interface IRedemptionBuffer {
         address _priceFeedAddress,
         address _octTokenAddress,
         address _collateralTokenAddress,
-        address _surplusSink
+        address _surplusSink,
+        address _successionRegistryAddress
     ) external;
 
     // --- Views ---
@@ -49,6 +53,10 @@ interface IRedemptionBuffer {
     function depositOf(address _depositor) external view returns (uint);
     function lockedUntil(address _depositor) external view returns (uint);
     function pointsOf(address _depositor) external view returns (uint); // wstETH-seconds served
+    function feesOf(address _depositor) external view returns (uint);   // wstETH of shared fees claimable now
+    function depositorsShareBps() external view returns (uint);         // the depositors' part of the next fee
+    function feesOwed() external view returns (uint);                   // wstETH set aside for depositors, unclaimed
+    function totalFeesShared() external view returns (uint);
     function releasable(uint _price) external view returns (uint);  // what the waterfall could release, before the daily cap
 
     // --- Actions ---
@@ -56,6 +64,9 @@ interface IRedemptionBuffer {
     // TroveManager only: the redeemer's OCT has already been moved into the buffer by the TroveManager;
     // send the collateral net of the redemption fee. Returns the collateral sent.
     function serveRedemption(address _redeemer, uint _octAmount, uint _price, uint _redemptionRate) external returns (uint);
+
+    // TroveManager only: the fee of a redemption served by the vaults has arrived in the pot; share it (#171).
+    function shareRedemptionFee(uint _fee) external;
 
     // Anyone: buy OCT from the inventory at oracle par + premium, paying wstETH.
     function buyInventory(uint _octAmount, uint _maxCollIn) external returns (uint collIn);
@@ -74,6 +85,12 @@ interface IRedemptionBuffer {
     function deposit(uint _collAmount) external;
     function withdraw(uint _collAmount) external;
     function checkpoint(address _depositor) external;
+
+    // Anyone: take the shared fees earned so far, in wstETH (#171).
+    function claimFees() external returns (uint);
+
+    // SuccessionRegistry only: a dead depositor's deposit passes to an heir as a deposit (#171).
+    function transferDepositForSuccession(address _owner, address _heir, uint _collAmount) external;
 
     // Anyone: release what the waterfall allows today to the surplus sink.
     function releaseSurplus() external returns (uint);

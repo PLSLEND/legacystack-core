@@ -58,7 +58,7 @@ interface IPriceT { function setPrice(uint) external returns (bool); function ge
 interface IMockWst { function mint(address,uint) external; function approve(address,uint) external returns (bool); function balanceOf(address) external view returns (uint); function setStEthPerToken(uint) external; function stEthPerToken() external view returns (uint); function transfer(address,uint) external returns (bool); }
 interface IERC20L { function balanceOf(address) external view returns (uint); function totalSupply() external view returns (uint); function transfer(address,uint) external returns (bool); function approve(address,uint) external returns (bool); }
 interface IBuffer {
-    function setAddresses(address,address,address,address,address,address) external;
+    function setAddresses(address,address,address,address,address,address,address) external;
     function pot() external view returns (uint);
     function ownPot() external view returns (uint);
     function totalDeposits() external view returns (uint);
@@ -81,9 +81,15 @@ interface IBuffer {
     function releaseSurplus() external returns (uint);
     function surplusSink() external view returns (address);
     function lastRelease() external view returns (uint);
+    function feesOf(address) external view returns (uint);
+    function depositorsShareBps() external view returns (uint);
+    function feesOwed() external view returns (uint);
+    function totalFeesShared() external view returns (uint);
+    function claimFees() external returns (uint);
+    function transferDepositForSuccession(address, address, uint) external;
 }
 interface IRegistry {
-    function setAddresses(address,address,address,address,address,address) external;
+    function setAddresses(address,address,address,address,address,address,address) external;
     function setPlan(address[] calldata, uint16[] calldata, address) external;
     function clearPlan() external;
     function proveLife() external;
@@ -136,8 +142,8 @@ contract LegacyStackBase is Test {
         IDP(dp).setAddresses(tm, ap, wst);
         ICSP(csp).setAddresses(bo, tm, ap, wst);
         IHintH(hh).setAddresses(st, tm);
-        IBuffer(buffer).setAddresses(tm, bo, pf, oct, wst, surplusSink);
-        IRegistry(registry).setAddresses(bo, tm, sp, csp, oct, wst);
+        IBuffer(buffer).setAddresses(tm, bo, pf, oct, wst, surplusSink, registry);
+        IRegistry(registry).setAddresses(bo, tm, sp, csp, oct, wst, buffer);
         IPriceT(pf).setPrice(2000e18);
 
         address[4] memory us = [alice, bob, carol, dave];

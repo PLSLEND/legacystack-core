@@ -8,6 +8,7 @@ import "../upstream/Interfaces/IStabilityPool.sol";
 import "../upstream/Interfaces/ICollSurplusPool.sol";
 import "../upstream/Interfaces/IBorrowerOperations.sol";
 import "../upstream/Interfaces/ILUSDToken.sol";
+import "./Interfaces/IRedemptionBuffer.sol";
 import "../upstream/Dependencies/IERC20.sol";
 import "../upstream/Dependencies/SafeMath.sol";
 import "../upstream/Dependencies/BaseMath.sol";
@@ -43,6 +44,7 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
     ICollSurplusPool public collSurplusPool;
     ILUSDToken public octToken;
     IERC20 public collateralToken;
+    IRedemptionBuffer public redemptionBuffer;
 
     struct Heir {
         address account;
@@ -81,7 +83,8 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         address _stabilityPoolAddress,
         address _collSurplusPoolAddress,
         address _octTokenAddress,
-        address _collateralTokenAddress
+        address _collateralTokenAddress,
+        address _redemptionBufferAddress
     )
         external
         override
@@ -93,6 +96,7 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         checkContract(_collSurplusPoolAddress);
         checkContract(_octTokenAddress);
         checkContract(_collateralTokenAddress);
+        checkContract(_redemptionBufferAddress);
 
         borrowerOperations = IBorrowerOperations(_borrowerOperationsAddress);
         troveManager = ITroveManager(_troveManagerAddress);
@@ -100,6 +104,7 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         collSurplusPool = ICollSurplusPool(_collSurplusPoolAddress);
         octToken = ILUSDToken(_octTokenAddress);
         collateralToken = IERC20(_collateralTokenAddress);
+        redemptionBuffer = IRedemptionBuffer(_redemptionBufferAddress);
 
         _renounceOwnership();
     }
@@ -236,6 +241,9 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         _distribute(_owner, plan, address(collateralToken), coll);
         _distribute(_owner, plan, address(octToken), oct);
 
+        // 5. The reserve deposit passes as a deposit, by the same shares: nothing leaves the reserve (#171).
+        _passDeposit(_owner, plan);
+
         emit SuccessionExecuted(_owner, msg.sender, coll, oct, reward);
     }
 
@@ -263,6 +271,21 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         delete estates[_owner];
         if (oct > 0) { require(octToken.transfer(_owner, oct), "SuccessionRegistry: OCT return failed"); }
         if (coll > 0) { require(collateralToken.transfer(_owner, coll), "SuccessionRegistry: collateral return failed"); }
+    }
+
+    function _passDeposit(address _owner, Plan storage _plan) internal {
+        uint amount = redemptionBuffer.depositOf(_owner);
+        if (amount == 0) { return; }
+        uint n = _plan.heirs.length;
+        uint remaining = amount;
+        for (uint i = 0; i < n; i++) {
+            Heir storage heir = _plan.heirs[i];
+            uint share = (i == n - 1) ? remaining : amount.mul(heir.bps).div(BPS);
+            remaining = remaining.sub(share);
+            if (share == 0) { continue; }
+            redemptionBuffer.transferDepositForSuccession(_owner, heir.account, share);
+            emit DepositPassed(_owner, heir.account, share);
+        }
     }
 
     function _distribute(address _owner, Plan storage _plan, address _token, uint _amount) internal {

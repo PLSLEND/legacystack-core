@@ -15,6 +15,7 @@ pragma solidity 0.6.11;
 * executor is paid a small reward from the estate. No death oracle, no admin, no third party.
 */
 interface ISuccessionRegistry {
+    event DepositPassed(address indexed _owner, address indexed _heir, uint _collAmount);
 
     event PlanSet(address indexed _owner, uint _heirCount, address _fallbackHeir);
     event PlanCleared(address indexed _owner);
@@ -31,7 +32,8 @@ interface ISuccessionRegistry {
         address _stabilityPoolAddress,
         address _collSurplusPoolAddress,
         address _octTokenAddress,
-        address _collateralTokenAddress
+        address _collateralTokenAddress,
+        address _redemptionBufferAddress
     ) external;
 
     // --- Owner actions ---

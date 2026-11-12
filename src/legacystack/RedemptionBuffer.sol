@@ -29,6 +29,13 @@ import "../upstream/Dependencies/LiquityMath.sol";
 * band between 100% and 200% of target plus everything above 200%, at most 5% of the own pot per day,
 * goes to the surplus sink (the burn auction and the POL keeper, periphery).
 *
+* Fee sharing (#171): the wstETH the reserve earns for serving the market, the redemption fees and the
+* standing offer's premium, is shared with the depositors who put their capital at the redeemers' disposal:
+* their part is their share of the pot, and at least half while any deposit exists; it is set aside as owed
+* (never counted as reserve capacity, never released by the waterfall) and claimable in wstETH at any time.
+* Interest and mint fees are the protocol's alone. A deposit passes to the depositor's heirs through the
+* Succession Registry as a deposit, with its earned fees and points, never as a withdrawal.
+*
 * Ownable is used only for the one-time setAddresses, then renounced (upstream pattern).
 */
 contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer {
@@ -64,6 +71,15 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
     mapping(address => uint) internal points;
     mapping(address => uint) internal lastPoint;
 
+    // Fee sharing (#171): wstETH owed to depositors, accrued per unit of deposit (1e18-scaled)
+    address public successionRegistryAddress;
+    uint constant public DEPOSITORS_MIN_SHARE_BPS = 5000;   // depositors receive at least half of every shared fee
+    uint public override feesOwed;                          // total wstETH set aside for depositors, unclaimed
+    uint public feePerDeposit;                              // cumulative fee per wstETH of deposit, 1e18-scaled
+    mapping(address => uint) internal feeDebt;              // feePerDeposit already accounted for a depositor
+    mapping(address => uint) internal feeOwedTo;            // fees checkpointed for a depositor, in wstETH
+    uint public override totalFeesShared;                   // all-time wstETH credited to depositors
+
     constructor() public {
         lastRelease = block.timestamp;
     }
@@ -76,7 +92,8 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         address _priceFeedAddress,
         address _octTokenAddress,
         address _collateralTokenAddress,
-        address _surplusSink
+        address _surplusSink,
+        address _successionRegistryAddress
     )
         external
         override
@@ -87,6 +104,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         checkContract(_priceFeedAddress);
         checkContract(_octTokenAddress);
         checkContract(_collateralTokenAddress);
+        checkContract(_successionRegistryAddress);
         require(_surplusSink != address(0), "RedemptionBuffer: zero sink");
 
         troveManagerAddress = _troveManagerAddress;
@@ -95,14 +113,17 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         octToken = ILUSDToken(_octTokenAddress);
         collateralToken = IERC20(_collateralTokenAddress);
         surplusSink = _surplusSink;
+        successionRegistryAddress = _successionRegistryAddress;
 
         _renounceOwnership();
     }
 
     // --- Views ---
 
+    // The wstETH held, minus what is set aside for depositors: the reserve's capital
     function pot() public view override returns (uint) {
-        return collateralToken.balanceOf(address(this));
+        uint held = collateralToken.balanceOf(address(this));
+        return held > feesOwed ? held.sub(feesOwed) : 0;
     }
 
     function inventory() public view override returns (uint) {
@@ -118,6 +139,20 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
     // Time-served points of a depositor: wstETH-seconds, including the time since the last checkpoint
     function pointsOf(address _depositor) public view override returns (uint) {
         return points[_depositor].add(depositOf[_depositor].mul(block.timestamp.sub(lastPoint[_depositor])));
+    }
+
+    // Fees a depositor can claim now, in wstETH
+    function feesOf(address _depositor) public view override returns (uint) {
+        return feeOwedTo[_depositor].add(depositOf[_depositor].mul(feePerDeposit.sub(feeDebt[_depositor])).div(DECIMAL_PRECISION));
+    }
+
+    // The depositors' share of the next fee: their share of the pot, at least half; nothing without deposits
+    function depositorsShareBps() public view override returns (uint) {
+        if (totalDeposits == 0) { return 0; }
+        uint p = pot();
+        uint share = p == 0 ? BPS : totalDeposits.mul(BPS).div(p);
+        if (share > BPS) { share = BPS; }
+        return share < DEPOSITORS_MIN_SHARE_BPS ? DEPOSITORS_MIN_SHARE_BPS : share;
     }
 
     function potValue(uint _price) public view override returns (uint) {
@@ -161,9 +196,34 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         uint fee = collDrawn.mul(_redemptionRate).div(DECIMAL_PRECISION);
         require(fee < collDrawn, "RedemptionBuffer: fee would eat the collateral");
         uint collOut = collDrawn.sub(fee);
+        uint shareBps = depositorsShareBps();           // measured before the pot pays the redeemer
         require(collateralToken.transfer(_redeemer, collOut), "RedemptionBuffer: collateral transfer failed");
+        _shareFee(fee, shareBps);
         emit RedemptionServed(_redeemer, _octAmount, collOut, fee);
         return collOut;
+    }
+
+    // TroveManager only: a redemption served by the vaults has just sent its fee here; share it (#171).
+    function shareRedemptionFee(uint _fee) external override {
+        _requireCallerIsTroveManager();
+        _shareFee(_fee, depositorsShareBps());
+    }
+
+    // The depositors' part of a fee that has just arrived in wstETH is set aside for them.
+    function _shareFee(uint _fee, uint _shareBps) internal {
+        if (_fee == 0 || totalDeposits == 0) { return; }
+        uint part = _fee.mul(_shareBps).div(BPS);
+        if (part == 0) { return; }
+        feesOwed = feesOwed.add(part);
+        totalFeesShared = totalFeesShared.add(part);
+        feePerDeposit = feePerDeposit.add(part.mul(DECIMAL_PRECISION).div(totalDeposits));
+        emit FeeShared(_fee, part);
+    }
+
+    // The premium above par in a sale of inventory at the standing offer, in wstETH
+    function _premiumOf(uint _octAmount, uint _collIn, uint _price) internal pure returns (uint) {
+        uint par = _octAmount.mul(DECIMAL_PRECISION).div(_price);
+        return _collIn > par ? _collIn.sub(par) : 0;
     }
 
     // The standing offer values wstETH at the lower of the canonical and the market price (#162): the reserve
@@ -181,6 +241,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         require(collIn <= _maxCollIn, "RedemptionBuffer: price above max");
         require(collateralToken.transferFrom(msg.sender, address(this), collIn), "RedemptionBuffer: collateral transferFrom failed");
         require(octToken.transfer(msg.sender, _octAmount), "RedemptionBuffer: OCT transfer failed");
+        _shareFee(_premiumOf(_octAmount, collIn, price), depositorsShareBps());
         emit InventorySold(msg.sender, _octAmount, collIn);
     }
 
@@ -193,6 +254,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         require(_collIn >= quoteInventory(_octAmount, price), "RedemptionBuffer: below the standing offer");
         if (_cut > 0) { require(octToken.transfer(_cutTo, _cut), "RedemptionBuffer: OCT transfer failed"); }
         if (_rest > 0) { require(octToken.transfer(_owner, _rest), "RedemptionBuffer: OCT transfer failed"); }
+        _shareFee(_premiumOf(_octAmount, _collIn, price), depositorsShareBps());
         emit SkimServed(_owner, _octAmount, _collIn, _cut, _rest);
     }
 
@@ -207,6 +269,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
     function deposit(uint _collAmount) external override {
         require(_collAmount > 0, "RedemptionBuffer: zero amount");
         _checkpoint(msg.sender);
+        _checkpointFees(msg.sender);
         require(collateralToken.transferFrom(msg.sender, address(this), _collAmount), "RedemptionBuffer: collateral transferFrom failed");
         depositOf[msg.sender] = depositOf[msg.sender].add(_collAmount);
         totalDeposits = totalDeposits.add(_collAmount);
@@ -222,10 +285,43 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         uint valueAfter = pot().sub(_collAmount).mul(price).div(DECIMAL_PRECISION);
         require(valueAfter >= target(), "RedemptionBuffer: the pot would fall below target");
         _checkpoint(msg.sender);
+        _checkpointFees(msg.sender);
         depositOf[msg.sender] = depositOf[msg.sender].sub(_collAmount);
         totalDeposits = totalDeposits.sub(_collAmount);
         require(collateralToken.transfer(msg.sender, _collAmount), "RedemptionBuffer: collateral transfer failed");
         emit Withdrawn(msg.sender, _collAmount);
+    }
+
+    // Anyone: take the fees earned so far, in wstETH. Set aside when earned, so never locked by the target.
+    function claimFees() external override returns (uint amount) {
+        _checkpointFees(msg.sender);
+        amount = feeOwedTo[msg.sender];
+        require(amount > 0, "RedemptionBuffer: nothing to claim");
+        feeOwedTo[msg.sender] = 0;
+        feesOwed = feesOwed.sub(amount);
+        require(collateralToken.transfer(msg.sender, amount), "RedemptionBuffer: collateral transfer failed");
+        emit FeesClaimed(msg.sender, amount);
+    }
+
+    // SuccessionRegistry only (#171): part of a dead depositor's deposit becomes the heir's deposit, with the
+    // same share of the earned fees and points. Nothing leaves the pot; the heir's lock is the later of the two.
+    function transferDepositForSuccession(address _owner, address _heir, uint _collAmount) external override {
+        require(msg.sender == successionRegistryAddress, "RedemptionBuffer: caller is not the SuccessionRegistry");
+        require(_heir != address(0) && _heir != _owner, "RedemptionBuffer: bad heir");
+        uint principal = depositOf[_owner];
+        require(_collAmount > 0 && _collAmount <= principal, "RedemptionBuffer: more than deposited");
+        _checkpoint(_owner); _checkpoint(_heir);
+        _checkpointFees(_owner); _checkpointFees(_heir);
+        uint feesPart = feeOwedTo[_owner].mul(_collAmount).div(principal);
+        uint pointsPart = points[_owner].mul(_collAmount).div(principal);
+        depositOf[_owner] = principal.sub(_collAmount);
+        depositOf[_heir] = depositOf[_heir].add(_collAmount);
+        feeOwedTo[_owner] = feeOwedTo[_owner].sub(feesPart);
+        feeOwedTo[_heir] = feeOwedTo[_heir].add(feesPart);
+        points[_owner] = points[_owner].sub(pointsPart);
+        points[_heir] = points[_heir].add(pointsPart);
+        if (lockedUntil[_owner] > lockedUntil[_heir]) { lockedUntil[_heir] = lockedUntil[_owner]; }
+        emit DepositInherited(_owner, _heir, _collAmount, feesPart);
     }
 
     // Anyone may write a depositor's points to storage (the emissions contract does before it pays).
@@ -236,6 +332,11 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
     function _checkpoint(address _depositor) internal {
         points[_depositor] = pointsOf(_depositor);
         lastPoint[_depositor] = block.timestamp;
+    }
+
+    function _checkpointFees(address _depositor) internal {
+        feeOwedTo[_depositor] = feesOf(_depositor);
+        feeDebt[_depositor] = feePerDeposit;
     }
 
     // --- Surplus waterfall ---

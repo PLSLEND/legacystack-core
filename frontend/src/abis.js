@@ -73,6 +73,11 @@ export const bufferAbi = parseAbi([
   'function lastRelease() view returns (uint256)',
   'function deposit(uint256)',
   'function withdraw(uint256)',
+  'function feesOf(address) view returns (uint256)',
+  'function depositorsShareBps() view returns (uint256)',
+  'function feesOwed() view returns (uint256)',
+  'function totalFeesShared() view returns (uint256)',
+  'function claimFees() returns (uint256)',
 ]);
 
 export const auctionAbi = parseAbi([
@@ -165,6 +170,21 @@ export const keeperDeskAbi = parseAbi([
   'function pending(uint256 maxScan) view returns (Pending)',
   'function run(address[] liquidate, address[] execute, address[] skim, bool tend) returns (uint256 octPaid, uint256 collPaid)',
   'function skimmable(address owner) view returns (uint256)',
+]);
+
+export const liquidityDeskAbi = parseAbi([
+  'function provide(uint256 octAmount, uint256 counterAmount) returns (uint256 tokenId, uint256 octUsed, uint256 counterUsed)',
+  'function collect() returns (uint256 oct, uint256 counter)',
+  'function withdraw(uint128 liquidity) returns (uint256 oct, uint256 counter)',
+  'function inherit(address owner)',
+  'function claimEscrow(address token)',
+  'function positionOf(address) view returns (uint256)',
+  'function liquidityOf(address) view returns (uint128)',
+  'function owedOf(address) view returns (uint256 oct, uint256 counter)',
+  'function atPar() view returns (bool)',
+  'function totalOctProvided() view returns (uint256)',
+  'function totalCounterProvided() view returns (uint256)',
+  'function escrowOf(address, address) view returns (uint256)',
 ]);
 
 export const uniswapPoolAbi = parseAbi([

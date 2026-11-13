@@ -226,7 +226,17 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
             estate.coll = estate.coll.add(surplus);
         }
 
-        // 4. Reward the executor from the estate, then push everything to the heirs.
+        // 4. The reserve deposit, paid out for the heirs: wstETH as far as the reserve stays at target, then OCT
+        //    from its inventory; what neither covers passes as deposits below (#172).
+        uint left;
+        if (redemptionBuffer.depositOf(_owner) > 0 || redemptionBuffer.feesOf(_owner) > 0) {
+            (uint collPaid, uint octPaid, uint rest) = redemptionBuffer.payoutForSuccession(_owner, address(this));
+            estate.coll = estate.coll.add(collPaid);
+            estate.oct = estate.oct.add(octPaid);
+            left = rest;
+        }
+
+        // 5. Reward the executor from the estate, then push everything to the heirs.
         uint coll = estate.coll;
         uint oct = estate.oct;
         uint reward = LiquityMath._min(coll.mul(REWARD_BPS).div(BPS), REWARD_CAP);
@@ -241,8 +251,8 @@ contract SuccessionRegistry is BaseMath, Ownable, CheckContract, ISuccessionRegi
         _distribute(_owner, plan, address(collateralToken), coll);
         _distribute(_owner, plan, address(octToken), oct);
 
-        // 5. The reserve deposit passes as a deposit, by the same shares: nothing leaves the reserve (#171).
-        _passDeposit(_owner, plan);
+        // 6. Whatever the reserve could not pay out today passes as deposits, by the same shares (#171).
+        if (left > 0) { _passDeposit(_owner, plan); }
 
         emit SuccessionExecuted(_owner, msg.sender, coll, oct, reward);
     }

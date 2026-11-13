@@ -228,11 +228,14 @@ async function refreshSinks() {
   const [par, n, octIn, toAuction, returned, harvested, failedSince, compounded, share, seed] = await Promise.all([
     read(pol, A.polAbi, 'octAtOrAbovePar'), read(pol, A.polAbi, 'positionCount'), read(pol, A.polAbi, 'totalOctDeposited'), read(pol, A.polAbi, 'totalCollToAuction').catch(() => 0n),
     read(pol, A.polAbi, 'totalCollReturned').catch(() => 0n), read(pol, A.polAbi, 'totalOctHarvested').catch(() => null), read(pol, A.polAbi, 'failedSince').catch(() => 0n),
-    read(pol, A.polAbi, 'totalOctCompounded').catch(() => null), read(pol, A.polAbi, 'protocolShare').catch(() => null), read(pol, A.polAbi, 'seedOct').catch(() => 0n),
+    read(pol, A.polAbi, 'totalOctCompounded').catch(() => null), read(pol, A.polAbi, 'polValue').catch(() => null), read(pol, A.polAbi, 'seedOct').catch(() => 0n),
   ]);
-  const held = await read(D.wstETH, A.erc20Abi, 'balanceOf', [pol]);
+  const [held, target] = await Promise.all([read(D.wstETH, A.erc20Abi, 'balanceOf', [pol]), read(pol, A.polAbi, 'polTarget').catch(() => null)]);
   const notes = [];
-  if (share !== null) notes.push(`the protocol holds ${pct(share)} of the pool: fees ${share >= 5n * 10n ** 17n ? 'compound into the pool' : 'go to the reserve'}`);
+  if (share !== null && target !== null) {
+    const below = share < target;
+    notes.push(`protocol-owned liquidity ${fmt(share, 0)} OCT of a ${fmt(target, 0)} OCT target (10% of the circulating OCT): ${below ? 'fees compound into the pool and the whole surplus comes here' : 'fees go to the reserve and the surplus is split with the burn auction'}`);
+  }
   if (compounded !== null && compounded > 0n) notes.push(`${fmt(compounded, 2)} OCT of fees compounded`);
   if (harvested !== null && harvested > 0n) notes.push(`${fmt(harvested, 2)} OCT of fees to the reserve`);
   if (failedSince > 0n) notes.push(`the pool has been failing since ${date(failedSince)}; the wstETH waits, after 90 days it returns to the reserve`);

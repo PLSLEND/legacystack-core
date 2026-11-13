@@ -33,8 +33,11 @@ import "../upstream/Dependencies/LiquityMath.sol";
 * standing offer's premium, is shared with the depositors who put their capital at the redeemers' disposal:
 * their part is their share of the pot, and at least half while any deposit exists; it is set aside as owed
 * (never counted as reserve capacity, never released by the waterfall) and claimable in wstETH at any time.
-* Interest and mint fees are the protocol's alone. A deposit passes to the depositor's heirs through the
-* Succession Registry as a deposit, with its earned fees and points, never as a withdrawal.
+* Interest and mint fees are the protocol's alone. At succession a deposit is PAID OUT to the heirs through
+* the Succession Registry: the earned fees in wstETH, the principal in wstETH as far as the pot stays at its
+* target, then in OCT from the inventory at the oracle price, and only what neither can cover passes to the
+* heirs as a deposit of their own (with its points), so the heirs hold tokens in their wallets, not a position
+* they would have to come back for.
 *
 * Ownable is used only for the one-time setAddresses, then renounced (upstream pattern).
 */
@@ -301,6 +304,47 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         feesOwed = feesOwed.sub(amount);
         require(collateralToken.transfer(msg.sender, amount), "RedemptionBuffer: collateral transfer failed");
         emit FeesClaimed(msg.sender, amount);
+    }
+
+    // SuccessionRegistry only (#172): a dead depositor's deposit is paid out to the registry for the heirs: the
+    // earned fees in wstETH; the principal in wstETH as far as the pot stays at target afterwards, then in OCT
+    // from the inventory at the oracle price; whatever is left stays a deposit, for transferDepositForSuccession.
+    function payoutForSuccession(address _owner, address _to) external override returns (uint collOut, uint octOut, uint left) {
+        require(msg.sender == successionRegistryAddress, "RedemptionBuffer: caller is not the SuccessionRegistry");
+        _checkpoint(_owner);
+        _checkpointFees(_owner);
+        uint fees = feeOwedTo[_owner];
+        if (fees > 0) {
+            feeOwedTo[_owner] = 0;
+            feesOwed = feesOwed.sub(fees);
+            collOut = fees;
+        }
+        uint principal = depositOf[_owner];
+        if (principal > 0) {
+            (uint collPart, uint octPart, uint paid) = _payoutParts(principal);
+            depositOf[_owner] = principal.sub(paid);
+            totalDeposits = totalDeposits.sub(paid);
+            collOut = collOut.add(collPart);
+            octOut = octPart;
+            left = principal.sub(paid);
+        }
+        if (collOut > 0) { require(collateralToken.transfer(_to, collOut), "RedemptionBuffer: collateral transfer failed"); }
+        if (octOut > 0) { require(octToken.transfer(_to, octOut), "RedemptionBuffer: OCT transfer failed"); }
+        emit DepositPaidOut(_owner, collOut, octOut, left);
+    }
+
+    // How a principal is paid out: wstETH while the pot stays at target, OCT from the inventory at the oracle
+    // price for the rest; `paid` is the principal covered by both, in wstETH.
+    function _payoutParts(uint _principal) internal returns (uint collPart, uint octPart, uint paid) {
+        uint price = priceFeed.fetchPrice();
+        uint targetColl = target().mul(DECIMAL_PRECISION).div(price);
+        uint p = pot();
+        uint room = p > targetColl ? p.sub(targetColl) : 0;
+        collPart = LiquityMath._min(_principal, room);
+        uint rest = _principal.sub(collPart);
+        octPart = LiquityMath._min(rest.mul(price).div(DECIMAL_PRECISION), inventory());
+        uint octAsColl = LiquityMath._min(octPart.mul(DECIMAL_PRECISION).div(price), rest);
+        paid = collPart.add(octAsColl);
     }
 
     // SuccessionRegistry only (#171): part of a dead depositor's deposit becomes the heir's deposit, with the

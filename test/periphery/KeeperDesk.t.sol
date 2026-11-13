@@ -17,7 +17,7 @@ contract KeeperDeskTest is LegacyStackBase {
 
     function setUp() public override {
         super.setUp();
-        desk = deployCode("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(tm, bo, st, pf, buffer, registry, oct, wst));
+        desk = deployCode("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(tm, bo, st, pf, buffer, registry, oct, wst, address(0)));
         // a safe vault, a Stability Pool deposit to absorb liquidations, and a risky vault
         _open(alice, 100 ether, 20_000e18);
         vm.prank(alice); ISP(sp).provideToSP(15_000e18);

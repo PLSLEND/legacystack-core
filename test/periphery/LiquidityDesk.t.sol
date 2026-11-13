@@ -169,4 +169,25 @@ contract LiquidityDeskTest is LegacyStackBase {
         assertEq(IDesk(desk).positionOf(alice), 0);
         vm.expectRevert("LiquidityDesk: no position"); IDesk(desk).inherit(alice);
     }
+
+    function test_oneKeeperPressSettlesTheEstateAndHandsTheLiquidityToTheHeirs() public {
+        address keeper = deployCode("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(tm, bo, st, pf, buffer, registry, oct, wst, desk));
+        _provide(alice, 1000e18, 1000e18);
+        address[] memory heirs = new address[](1); heirs[0] = carol;
+        uint16[] memory bps = new uint16[](1); bps[0] = 10000;
+        vm.prank(alice); IRegistry(registry).setPlan(heirs, bps, address(0));
+        vm.warp(block.timestamp + 395 days + 1);
+        _open(bob, 60 ether, 30000e18);
+        vm.prank(bob); ISP(sp).provideToSP(20000e18);
+        uint cO = IERC20L(oct).balanceOf(carol); uint cW = IMockWst(wst).balanceOf(carol);
+        address[] memory none; address[] memory due = new address[](1); due[0] = alice;
+        vm.prank(dave); IKeeperRun(keeper).run(none, due, none, false);
+        (uint8 state,,) = IRegistry(registry).successionState(alice);
+        assertEq(state, 4, "the estate is settled");
+        assertEq(IDesk(desk).positionOf(alice), 0, "the liquidity left the desk in the same press");
+        assertEq(IERC20L(oct).balanceOf(carol) - cO, 1000e18); assertEq(IERC20D(usde).balanceOf(carol), 1000e18);
+        assertGt(IMockWst(wst).balanceOf(carol), cW, "the vault's collateral came too");
+        assertGt(IMockWst(wst).balanceOf(dave), 1000 ether, "the one who pressed was paid");
+    }
 }
+interface IKeeperRun { function run(address[] calldata, address[] calldata, address[] calldata, bool) external returns (uint, uint); }

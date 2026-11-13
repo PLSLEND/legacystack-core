@@ -12,13 +12,15 @@ pragma solidity 0.8.28;
 * above par. Adding OCT when it trades at a premium nudges it back to par; adding it below par would push it
 * further down, so the keeper simply waits. The position is held forever: never withdrawn.
 *
-* Fees (#169, #170): `harvest()` collects what the positions earned. Fees in the counter-asset are turned into
-* OCT inside the pool, only while OCT trades at or below par and never above 1% over it (a bid that can only
-* help the peg); otherwise they wait here. The OCT then goes one of two ways, by a rule and never by a key:
-* while the protocol still holds at least half of the pool (the seed it placed plus the OCT the keeper placed,
-* against everything the pool holds), the fees COMPOUND into a new position, deepening the liquidity that
-* holds the peg; once others hold more than half, the fees go to the reserve's inventory. Fees can only ever
-* sit in the pool or in the protocol; nobody can take them out.
+* Fees (#169, #170, #172): `harvest()` collects what the positions earned. Fees in the counter-asset are turned
+* into OCT inside the pool, only while OCT trades at or below par and never above 1% over it (a bid that can
+* only help the peg); otherwise they wait here. The OCT then goes one of two ways, by a rule and never by a
+* key: while the protocol-owned liquidity is BELOW ITS TARGET (POL_TARGET_BPS of the circulating OCT; the seed
+* plus everything the keeper placed, counted in OCT), the fees COMPOUND into a new position, deepening the
+* liquidity that holds the peg; once the target is reached, the fees go to the reserve's inventory and feed
+* the reserve, the waterfall and the rest. The same target tells the splitter how much of the reserve's
+* surplus to send here (all of it below target, half above). Fees can only ever sit in the pool or in the
+* protocol; nobody can take them out.
 *
 * Seed (#170): the deployment sends the pool's opening liquidity (OCT and the counter-asset) here and calls
 * `seed()` once; the keeper places it two-sided around par (0.98 to 1.02) and holds it forever, so the
@@ -31,6 +33,7 @@ pragma solidity 0.8.28;
 interface IPolERC20 { function balanceOf(address) external view returns (uint); function transfer(address, uint) external returns (bool); function approve(address, uint) external returns (bool); }
 interface IPolBuffer {
     function inventory() external view returns (uint);
+    function circulatingSupply() external view returns (uint);
     function OFFER_PREMIUM() external view returns (uint);
     function quoteInventory(uint octAmount, uint price) external view returns (uint collIn);
     function buyInventory(uint octAmount, uint maxCollIn) external returns (uint collIn);
@@ -68,7 +71,7 @@ contract PolKeeperV3 {
     int24 public constant RANGE_TICKS = 100;        // the one-sided band: ~1% wide, just beside the price
     int24 public constant SEED_TICKS = 200;         // the seed band: 0.98 to 1.02 around par
     uint public constant RETRY_WINDOW = 90 days;    // a venue that fails this long gives the wstETH back to the reserve
-    uint public constant COMPOUND_WHILE_SHARE_AT_LEAST = 5e17; // fees compound while the protocol holds >= 50% of the pool
+    uint public constant POL_TARGET_BPS = 1000;     // the protocol's own liquidity aims at 10% of the circulating OCT
     // sqrt prices at ticks +100 and -100: the harvest never buys OCT more than 1% over par
     uint160 internal constant SQRT_TICK_PLUS_100 = 79625275426524748796330556127;
     uint160 internal constant SQRT_TICK_MINUS_100 = 78833030112140176575862854578;
@@ -169,6 +172,20 @@ contract PolKeeperV3 {
 
     /// The protocol's share of the pool: the seed plus the OCT the keeper placed, against everything the pool
     /// holds (both tokens, ~$1 each). A measure, not a vault: what others add shrinks it, what they remove grows it.
+    /// The protocol-owned liquidity, in OCT: the seed plus everything the keeper placed (OCT and compounded fees)
+    function polValue() public view returns (uint) {
+        return seedOct + totalOctDeposited;
+    }
+
+    /// Where the protocol's own liquidity should stand: POL_TARGET_BPS of the circulating OCT
+    function polTarget() public view returns (uint) {
+        return reserve.circulatingSupply() * POL_TARGET_BPS / 10000;
+    }
+
+    function belowTarget() public view returns (bool) {
+        return polValue() < polTarget();
+    }
+
     function protocolShare() public view returns (uint) {
         uint held = octToken.balanceOf(address(pool)) + counterToken.balanceOf(address(pool));
         if (held == 0) return 1e18;
@@ -233,12 +250,12 @@ contract PolKeeperV3 {
         if (counter > 0 && octAtOrBelowPar()) {
             try this.buyOct(counter) returns (uint sold, uint bought) { counterSold = sold; octBought = bought; } catch {}
         }
-        // the OCT in hand (collected, bought, or left from an earlier harvest): compound while the pool is still
-        // mostly ours and OCT is at or above par, otherwise to the reserve; below par it waits
+        // the OCT in hand (collected, bought, or left from an earlier harvest): compound while the protocol's
+        // liquidity is below its target and OCT is at or above par, otherwise to the reserve; below par it waits
         uint oct = octToken.balanceOf(address(this));
         uint octCompounded;
         if (oct > 0) {
-            if (protocolShare() >= COMPOUND_WHILE_SHARE_AT_LEAST) {
+            if (belowTarget()) {
                 if (octAtOrAbovePar()) { try this.placeOct(oct) { octCompounded = oct; } catch {} }
             } else {
                 require(octToken.transfer(address(reserve), oct), "PolKeeperV3: transfer failed");

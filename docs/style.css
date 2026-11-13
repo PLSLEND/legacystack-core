@@ -96,14 +96,35 @@ main { max-width: 1140px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem) 3rem
 .hero-shade { position: absolute; inset: 0; pointer-events: none;
   background: linear-gradient(90deg, #000213 0%, rgba(0, 2, 19, 0.78) 8%, rgba(0, 2, 19, 0.42) 19%, transparent 33%, transparent 67%, rgba(0, 2, 19, 0.42) 81%, rgba(0, 2, 19, 0.78) 92%, #000213 100%),
     linear-gradient(180deg, rgba(0, 2, 19, 0.55) 0%, transparent 28%); }
-.hero-lion-wrap { position: absolute; left: 50%; bottom: calc(13.2cqh + 7.47cqw); height: 20.3cqw; aspect-ratio: 583.8 / 514.5; transform: translateX(-50%);
+.hero-stage { --glow: calc(15.5cqh + 7.47cqw); }   /* the top edge of the glow line's bright core, from the stage bottom */
+/* the band of light outside the lion sinks into the dark, so the light reads as a pool under the lion, not a horizon */
+.hero-bandshade { position: absolute; left: 0; right: 0; bottom: calc(var(--glow) - 9cqh); height: 17cqh; pointer-events: none;
+  background: linear-gradient(90deg, rgba(0, 2, 19, 0.92) 0%, rgba(0, 2, 19, 0.85) 18%, rgba(0, 2, 19, 0.45) 30%, transparent 41%, transparent 59%, rgba(0, 2, 19, 0.45) 70%, rgba(0, 2, 19, 0.85) 82%, rgba(0, 2, 19, 0.92) 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 30%, #000 70%, transparent 100%); mask-image: linear-gradient(180deg, transparent 0, #000 30%, #000 70%, transparent 100%); }
+/* the pool of light under the feet: a warm bloom spreading down onto the floor, and the bright contact line */
+.hero-floor { position: absolute; left: 50%; bottom: calc(var(--glow) - 9cqh); width: 40cqw; height: 10.5cqh; transform: translateX(-50%); pointer-events: none;
+  background: radial-gradient(ellipse 50% 60% at 50% 12%, rgba(255, 222, 150, 0.6) 0%, rgba(255, 190, 95, 0.3) 32%, rgba(255, 170, 70, 0.08) 62%, transparent 78%);
+  filter: blur(6px); animation: hero-glow-in 1.2s ease-out 0.9s both; }
+.hero-floor::before { content: ""; position: absolute; left: 10%; right: 10%; top: calc(13% - 1px); height: 2px; border-radius: 2px; filter: blur(0.6px);
+  background: linear-gradient(90deg, transparent, rgba(255, 236, 190, 0.55) 25%, rgba(255, 246, 215, 0.95) 50%, rgba(255, 236, 190, 0.55) 75%, transparent); }
+/* the ray: a light sweeping left to right on load, revealing the band behind it */
+.hero-bandcover { position: absolute; left: 0; right: 0; bottom: calc(var(--glow) - 9cqh); height: 17cqh; pointer-events: none; background: #02061a;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 26%, #000 74%, transparent 100%); mask-image: linear-gradient(180deg, transparent 0, #000 26%, #000 74%, transparent 100%);
+  animation: hero-reveal 1.6s cubic-bezier(.3, 0, .2, 1) 0.25s both; }
+.hero-ray { position: absolute; bottom: calc(var(--glow) - 1.4cqh); height: 2.8cqh; width: 16%; left: -18%; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 230, 170, 0.6) 45%, rgba(255, 248, 225, 0.85) 55%, transparent); filter: blur(3px);
+  animation: hero-ray 1.6s cubic-bezier(.3, 0, .2, 1) 0.25s both; }
+@keyframes hero-reveal { from { clip-path: inset(0 0 0 0); } to { clip-path: inset(0 0 0 100%); } }
+@keyframes hero-ray { from { left: -18%; opacity: 0.9; } 85% { opacity: 0.9; } to { left: 102%; opacity: 0; } }
+@keyframes hero-glow-in { from { opacity: 0; } to { opacity: 1; } }
+.hero-lion-wrap { position: absolute; left: 50%; bottom: var(--glow); height: 20.3cqw; aspect-ratio: 583.8 / 514.5; transform: translateX(-50%);
   animation: hero-rise 1.1s cubic-bezier(.2,.7,.2,1) both; }
 .hero-aura { position: absolute; inset: -18% -26% -30% -26%; z-index: 0; pointer-events: none;
   background: radial-gradient(ellipse 42% 48% at 34% 52%, rgba(66, 96, 255, 0.17), transparent 70%), radial-gradient(ellipse 40% 46% at 70% 44%, rgba(205, 165, 85, 0.14), transparent 70%);
   filter: blur(14px); }
 .hero-lion { position: relative; z-index: 1; display: block; height: 100%; width: auto;
   filter: drop-shadow(0 0 1px rgba(255, 244, 214, 0.35)) drop-shadow(0 2px 18px rgba(40, 60, 200, 0.28)); }
-.hero-reflection { position: absolute; top: 100%; left: 0; width: 100%; height: 46%; overflow: hidden; z-index: 1; pointer-events: none; opacity: 0.36;
+.hero-reflection { position: absolute; top: 100%; left: 0; width: 100%; height: 46%; overflow: hidden; z-index: 1; pointer-events: none; opacity: 0.5;
   -webkit-mask-image: linear-gradient(180deg, rgba(0,0,0,0.85) 0, rgba(0,0,0,0.25) 45%, transparent 90%); mask-image: linear-gradient(180deg, rgba(0,0,0,0.85) 0, rgba(0,0,0,0.25) 45%, transparent 90%); }
 .hero-reflection img { position: absolute; top: 0; left: 0; width: 100%; height: 217.4%; transform: scaleY(-0.46); transform-origin: top; filter: blur(1.6px); }
 .hero-copy { position: absolute; left: 0; right: 0; bottom: 3.4cqh; text-align: center; padding: 0 1rem; animation: hero-rise 1.1s cubic-bezier(.2,.7,.2,1) 0.15s both; }
@@ -119,7 +140,7 @@ main { max-width: 1140px; margin: 0 auto; padding: 0 clamp(1rem, 4vw, 2rem) 3rem
 .lede { color: var(--ink-2); font-size: clamp(1.02rem, 1.7vw, 1.2rem); max-width: 720px; margin: 0.4rem auto 1.5rem; line-height: 1.65; }
 @keyframes hero-rise { from { opacity: 0; transform: translate(var(--rise-x, 0), 14px); } to { opacity: 1; transform: translate(var(--rise-x, 0), 0); } }
 .hero-lion-wrap { --rise-x: -50%; }
-@media (prefers-reduced-motion: reduce) { .hero-lion-wrap, .hero-copy { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .hero-lion-wrap, .hero-copy, .hero-floor { animation: none; } .hero-bandcover, .hero-ray { display: none; } }
 .hero-actions { display: flex; gap: 0.8rem; justify-content: center; flex-wrap: wrap; }
 
 .glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0; border: 1px solid var(--line); border-radius: 6px; margin: 2.5rem 0 0; background: var(--bg-2); overflow: hidden; }
@@ -303,8 +324,10 @@ label.check input { width: auto; margin: 0; accent-color: var(--gold); }
      image's height */
   .hero-stage { height: 68vh; height: 68svh; }
   .hero-art { object-position: center center; }
-  .hero-lion-wrap { bottom: 25.6cqh; height: 34cqh; }
-  .hero-reflection { height: 40%; opacity: 0.3; }
+  .hero-stage { --glow: 28.8cqh; }
+  .hero-lion-wrap { height: 34cqh; }
+  .hero-floor { width: 58cqw; }
+  .hero-reflection { height: 40%; opacity: 0.42; }
   .hero-copy { top: 3.2cqh; bottom: auto; }
   .tagline-wide { display: none; }
   .tagline-narrow { display: block; }
@@ -313,7 +336,7 @@ label.check input { width: auto; margin: 0; accent-color: var(--gold); }
 @media (max-width: 720px) {
   .hero-stage { height: 72vh; height: 72svh; }
   .hero-lion-wrap { height: 32cqh; }
-  .hero-reflection { height: 36%; opacity: 0.28; }
+  .hero-reflection { height: 36%; opacity: 0.4; }
   .hero-copy { top: 2.6cqh; }
   .wordmark { font-size: 1.55rem; }
   .tagline { font-size: 0.62rem; letter-spacing: 0.18em; }

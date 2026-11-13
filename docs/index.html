@@ -48,6 +48,10 @@
 <div class="hero-stage" id="top">
   <img src="assets/hero-stage.webp" alt="" class="hero-art" width="1672" height="941" fetchpriority="high">
   <div class="hero-shade" aria-hidden="true"></div>
+  <div class="hero-bandshade" aria-hidden="true"></div>
+  <div class="hero-bandcover" aria-hidden="true"></div>
+  <div class="hero-ray" aria-hidden="true"></div>
+  <div class="hero-floor" aria-hidden="true"></div>
   <div class="hero-lion-wrap">
     <div class="hero-aura" aria-hidden="true"></div>
     <img src="assets/hero-lion.svg" alt="The LegacyStack winged lion" class="hero-lion" width="584" height="515" fetchpriority="high">
@@ -121,7 +125,7 @@
       <rect x="-58" y="-32" width="116" height="10" rx="5" fill="#0F1B42"/>
       <rect x="-58" y="-32" width="86" height="10" rx="5" fill="#3D63F5" class="fl-gauge"/>
       <text x="0" y="2" class="fl-small">collateral ratio</text>
-      <text x="0" y="24" class="fl-small fl-gold">110% floor · no maturity</text>
+      <text x="0" y="24" class="fl-small fl-gold">floor 110%</text>
       <circle cx="56" cy="-30" r="4" fill="#58C48C"><animate attributeName="opacity" values="1;.3;1" dur="2.4s" repeatCount="indefinite"/></circle>
     </g>
     <text x="398" y="212" class="fl-label">Borrow</text>
@@ -155,7 +159,7 @@
     <circle r="5" fill="#3D63F5"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#fl-p1"/></animateMotion></circle>
     <circle r="3.5" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".95" begin="1.5s"/><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#fl-p1"/></animateMotion></circle>
     <text x="248" y="118" class="fl-small">collateral in</text>
-    <text x="248" y="152" class="fl-small fl-gold">its yield repays the debt</text>
+    <text x="248" y="152" class="fl-small fl-gold">its yield can repay the debt</text>
     <circle r="5" fill="#D9AE4B" opacity="0"><set attributeName="opacity" to="1" begin="1.5s"/><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#fl-p2"/></animateMotion></circle>
     <circle r="4" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="0.6s"/><animateMotion dur="5s" begin="0.6s" repeatCount="indefinite"><mpath href="#fl-p4"/></animateMotion></circle>
     <circle r="4" fill="#E9C66F" opacity="0"><set attributeName="opacity" to=".9" begin="3.1s"/><animateMotion dur="5s" begin="3.1s" repeatCount="indefinite"><mpath href="#fl-p4"/></animateMotion></circle>
@@ -178,14 +182,14 @@
     <article class="move">
       <div class="move-num">03 · The liquidity works</div>
       <h3>Deploy</h3>
-      <p>The OCT you drew is yours. Inside the protocol it can earn in the Stability Pool, provide OCT/USDe liquidity, or buy more wstETH for the vault and raise your ratio. Every position inside the protocol stays inside your succession plan.</p>
-      <p class="move-note">Or take it out. It is a token in your wallet like any other; use it wherever you judge best, further down the risk curve if you like. The vault does not care where it goes, it only watches the ratio. What leaves the protocol leaves the plan.</p>
+      <p>The OCT you drew is yours. Inside the protocol it can earn in the Stability Pool, provide OCT/USDe liquidity, or buy more wstETH for the vault and raise your ratio. Every position inside the protocol is covered by your succession plan and is paid out to your heirs with the rest.</p>
+      <p class="move-note">Or take it out. It is a token in your wallet like any other; use it wherever you judge best, further down the risk curve if you like. The vault does not care where it goes, it only watches the ratio. One thing to weigh: what leaves the protocol leaves the plan.</p>
     </article>
     <article class="move">
       <div class="move-num">04 · It passes on</div>
       <h3>Pass it on</h3>
-      <p>Name up to ten heirs and their shares. Once a year, press one button: that is your proof of life, and nothing else counts. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault's debt is paid from its own OCT, then from the reserve at its offer price, then by the Stability Pool at 2% over par, and what remains goes directly into your heirs' wallets.</p>
-      <p class="move-note">No custodian, no paperwork, no death certificate. A clock, and a plan you can change at any time. The vault, your Stability Pool deposit, your reserve deposit and the liquidity you provide through the protocol all pass with it.</p>
+      <p>Name up to ten heirs and their shares. Once a year, press one button: that is your proof of life, and nothing else counts. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault's debt is paid from its own OCT, then from the reserve at its offer price, then by the Stability Pool at 2% over par, and what remains goes directly into your heirs' wallets. The same press pays out your Stability Pool deposit, your reserve deposit and the liquidity you provided through the protocol. Nothing is left as a position: your heirs receive tokens in their own wallets and need to know nothing about any of this.</p>
+      <p class="move-note">No custodian, no paperwork, no death certificate. A clock, and a plan you can change at any time. Built for the case where you understand this and the people you leave it to do not.</p>
     </article>
   </div>
 </section>
@@ -194,7 +198,7 @@
   <div class="section-head">
     <span class="eyebrow">The mechanics</span>
     <h2>What stands behind every vault</h2>
-    <p>Four mechanisms, all inside the protocol, all funded by the protocol's own fees. No treasury, no committee, no discretionary intervention, and no one between you and the contract: you decide, you act, the chain records it. Housekeeping is done by whoever presses the button and is paid for it.</p>
+    <p>Four mechanisms, all inside the protocol, all funded by the protocol's own revenue, and every cent of that revenue stays inside: no company, no fund and no middleman takes a share. Interest and mint fees build the reserve that protects borrowers; redemption fees and offer premiums are shared with the reserve's depositors; liquidations pay the Stability Pool; the surplus deepens the protocol's own OCT/USDe liquidity until it reaches its target, then also buys back and burns STACK; housekeeping pays whoever presses the button. No treasury, no committee, no discretionary intervention, and no one between you and the contract: you decide, you act, the chain records it.</p>
   </div>
   <div class="mech">
     <article class="mech-item">
@@ -218,7 +222,7 @@
     <h3>In plain words</h3>
     <ul>
       <li>There is no middleman. The protocol holds no keys: nobody can freeze it, upgrade it, change the rate or take the collateral. It is you, the contract and the blockchain. Nobody can help you either: write your heirs down.</li>
-      <li>Borrowing costs a 0.5% mint fee plus 1.5% a year. Redemptions carry a 0.75% minimum fee. Fees and interest feed the Redemption Reserve, which protects borrowers from redemptions and sets the lending limit.</li>
+      <li>Borrowing costs a 0.5% mint fee plus 1.5% a year. Redemptions carry a 0.75% minimum fee. Fees and interest feed the Redemption Reserve, which protects borrowers from redemptions and sets the lending limit. Nothing the protocol earns leaves it: it is redistributed to the people who take part, in reserve capital, depositor fees, pool gains, liquidity, STACK burns and housekeeping rewards.</li>
       <li>If your collateral ratio falls under 110%, your vault can be liquidated by anyone. Keep a margin; the dashboard shows your liquidation price at all times.</li>
       <li>Where the protocol pays for collateral, in new loans and the reserve's offer, it never values wstETH above its market price. If every price source were dead for thirty days, the deployment would stop lending for good and still settle every estate.</li>
       <li>LegacyStack is software. It is not a bank, an insurer or an investment firm. This page is a test deployment of unaudited code on a test network: it teaches the mechanics and is not an offer, advice or a promise.</li>
@@ -261,7 +265,7 @@
         <circle r="5" fill="#3D63F5"><animateMotion dur="2.6s" repeatCount="indefinite"><mpath href="#fv-p1"/></animateMotion></circle>
         <circle r="5" fill="#D9AE4B" opacity="0"><set attributeName="opacity" to="1" begin="1.3s"/><animateMotion dur="2.6s" begin="1.3s" repeatCount="indefinite"><mpath href="#fv-p2"/></animateMotion></circle>
         <text x="240" y="190" class="fl-label" style="font-size:17px">The vault</text>
-        <text x="240" y="212" class="fl-cap">1.5% a year, no maturity, one rule: stay above 110%</text>
+        <text x="240" y="212" class="fl-cap">1.5% a year, no maturity; the wstETH inside keeps earning</text>
       </svg>
     </figure>
     <figure class="flow flow-sm" aria-label="Auto-repay: the staking yield is sold to the reserve at par and the OCT shrinks the debt, on your schedule">
@@ -284,12 +288,12 @@
           <text x="0" y="-2" class="fl-small fl-gold">the reserve</text>
           <text x="0" y="18" class="fl-small">buys yield at par</text>
         </g>
-        <text x="230" y="58" class="fl-small">staking yield</text>
+        <text x="230" y="58" class="fl-small">the yield, sold at par</text>
         <text x="230" y="138" class="fl-small fl-gold">OCT repays the debt</text>
         <circle r="4" fill="#E9C66F"><animateMotion dur="3s" repeatCount="indefinite"><mpath href="#fa-p1"/></animateMotion></circle>
         <circle r="4" fill="#D9AE4B" opacity="0"><set attributeName="opacity" to="1" begin="1.5s"/><animateMotion dur="3s" begin="1.5s" repeatCount="indefinite"><mpath href="#fa-p2"/></animateMotion></circle>
-        <text x="240" y="190" class="fl-label" style="font-size:17px">Auto-repay from staking rewards</text>
-        <text x="240" y="212" class="fl-cap">on your schedule; the collateral you put in never shrinks</text>
+        <text x="240" y="190" class="fl-label" style="font-size:17px">Auto-repay, if you want it</text>
+        <text x="240" y="212" class="fl-cap">switch it on and the yield pays the loan down for you</text>
       </svg>
     </figure>
   </div>
@@ -320,7 +324,7 @@
         <button id="btn-claim-surplus" class="btn btn-ghost hidden">Claim leftover collateral</button>
       </div>
       <form id="form-auto" class="hidden">
-        <p class="small">Auto-repay from staking rewards. On the schedule you choose, the yield your wstETH earned since the last check is sold to the reserve at par and the OCT repays your debt. Your collateral never drops below what you put in, measured in stETH; whoever runs it keeps 1% of the OCT, at most 5. You can skim yourself at any time, with no cut, and switch it off whenever you like.</p>
+        <p class="small">Auto-repay from staking rewards, optional. On the schedule you choose, the yield your wstETH earned since the last check is sold to the reserve at par and the OCT repays your debt; only the yield is sold, never the wstETH you deposited. Whoever runs it keeps 1% of the OCT, at most 5. You can skim yourself at any time, with no cut, and switch it off whenever you like.</p>
         <div class="adjust-row">
           <label>Schedule<select id="auto-cadence"><option value="0">Off</option><option value="1">Monthly</option><option value="2">Quarterly</option><option value="3">Yearly</option></select></label>
           <div class="label-btn"><button type="submit" class="btn btn-ghost">Save schedule</button><button type="button" id="btn-skim" class="btn btn-ghost">Skim now</button></div>
@@ -354,8 +358,8 @@
         <div class="step-pane hidden" id="pane-2">
           <label>OCT to borrow<input id="in-debt" type="number" step="any" min="0" placeholder="minimum 1,800"></label>
           <div class="preview" id="open-preview">Enter amounts to see the ratio, the fee and the liquidation price.</div>
-          <label>Auto-repay from staking rewards<select id="open-cadence"><option value="0">No, I repay when I choose</option><option value="1">Yes, monthly</option><option value="2" selected>Yes, quarterly</option><option value="3">Yes, yearly</option></select></label>
-          <p class="small">Yes means: on that schedule, the staking yield your wstETH earned is sold to the reserve at par and the OCT repays your debt. It is one more confirmation after the vault opens, and you can change or switch it off at any time.</p>
+          <label>Auto-repay from staking rewards<select id="open-cadence"><option value="0" selected>No, I repay when I choose</option><option value="1">Yes, monthly</option><option value="2">Yes, quarterly</option><option value="3">Yes, yearly</option></select></label>
+          <p class="small">Optional. Your wstETH earns its staking yield inside the vault either way. Yes means: on that schedule, the yield it earned is sold to the reserve at par and the OCT repays your debt. It is one more confirmation after the vault opens, and you can change or switch it off at any time.</p>
           <div class="actions">
             <button type="button" class="btn btn-ghost" data-next="1">Back</button>
             <button class="btn btn-gold" type="submit" id="btn-open">Open vault</button>
@@ -393,7 +397,7 @@
   <div class="section-head">
     <span class="eyebrow">Succession <em class="tag">testnet</em></span>
     <h2>Your succession plan</h2>
-    <p>One plan per wallet. It covers the vault, your Stability Pool deposit, your reserve deposit, the liquidity you provide through the protocol, and any collateral left behind by a redemption. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you. Heirs are addresses: one of them can be a second wallet of your own, so the plan also covers lost keys.</p>
+    <p>One plan per wallet. It covers the vault, your Stability Pool deposit, your reserve deposit, the liquidity you provide through the protocol, and any collateral left behind by a redemption. At settlement all of it is paid out as tokens straight into the heirs' wallets, by their shares; no position is left for them to operate. A reserve deposit is paid in wstETH while the reserve can spare it and in OCT from its inventory after that; only what cannot be paid out yet stays a deposit in the heirs' names. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you. Heirs are addresses: one of them can be a second wallet of your own, so the plan also covers lost keys.</p>
   </div>
   <figure class="flow flow-sm" aria-label="Pass it on: one press a year resets the clock; after a year of silence and thirty days of grace the estate goes to the heirs by their shares">
     <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
@@ -491,7 +495,7 @@
     </div>
     <div class="box">
       <h3>Keeper desk</h3>
-      <p class="small">The protocol has no staff. Whoever presses a button does that piece of housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, 1% of the OCT (at most 5) for every auto-repay that is due. Three buttons, three jobs, so the urgent one never pays for the others.</p>
+      <p class="small">The protocol has no staff. Whoever presses a button does that piece of housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, 1% of the OCT (at most 5) for every auto-repay that is due, 0.1% of the surplus it splits (at most 0.02 wstETH) for the reserve housekeeping. Settling an estate also hands its protocol liquidity to the heirs in the same press. Three buttons, three jobs, so the urgent one never pays for the others.</p>
       <dl class="kv">
         <dt>Vaults to liquidate</dt><dd id="k-liq">—</dd>
         <dt>Estates to settle</dt><dd id="k-exe">—</dd>
@@ -519,7 +523,7 @@
   <div class="section-head">
     <span class="eyebrow">Redemption Reserve <em class="tag">testnet</em></span>
     <h2>The reserve</h2>
-    <p>Every fee and all interest end up here. Redemptions are served from the reserve first, so vaults are touched only when it is empty. The reserve also sets the lending limit. What it holds above its target flows out through a waterfall: half of the band up to twice the target and everything above it, at most 5% a day, split between the burn auction and protocol-owned liquidity.</p>
+    <p>Every fee and all interest end up here. Redemptions are served from the reserve first, so vaults are touched only when it is empty. The reserve also sets the lending limit. What it holds above its target flows out through a waterfall: half of the band up to twice the target and everything above it, at most 5% a day. It goes to the protocol's own OCT/USDe liquidity until that holds 10% of the circulating OCT, then half to the burn auction and half to the liquidity.</p>
   </div>
   <figure class="flow flow-sm" aria-label="The reserve: fees and interest fill it, redemptions are served from it first, and what it holds above target is released to the burn auction and the pool">
     <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
@@ -529,8 +533,8 @@
       </defs>
       <path id="fr-p1" class="fl-line" d="M98 70 H180" marker-end="url(#fr-arrow)"/>
       <path id="fr-p2" class="fl-line fl-dashed" d="M300 70 H382" marker-end="url(#fr-arrow)"/>
-      <path id="fr-p3" class="fl-line fl-return fr-gate" d="M240 118 V152 H150 V170" marker-end="url(#fr-arrow)"/>
-      <path id="fr-p4" class="fl-line fl-return fr-gate" d="M240 118 V152 H330 V170" marker-end="url(#fr-arrow)"/>
+      <path id="fr-p3" class="fl-line fl-return fr-gate" d="M240 118 V152 H148 V170" marker-end="url(#fr-arrow)"/>
+      <path id="fr-p4" class="fl-line fl-return fr-gate" d="M240 118 V152 H332 V170" marker-end="url(#fr-arrow)"/>
       <g transform="translate(50 70)">
         <rect x="-44" y="-24" width="88" height="48" rx="8" fill="#081130" stroke="#D9AE4B" stroke-width="2"/>
         <text x="0" y="-3" class="fl-small">fees and</text><text x="0" y="11" class="fl-small">interest</text>
@@ -540,18 +544,18 @@
       </g>
       <rect x="184" y="74" width="112" height="40" fill="#3D63F5" opacity=".35" clip-path="url(#fr-clip)" class="fr-level"/>
       <line x1="184" y1="64" x2="296" y2="64" stroke="#D9AE4B" stroke-width="1" stroke-dasharray="3 4"/>
-      <text x="240" y="52" class="fl-small fl-gold">target: 15% of all OCT</text>
+      <text x="240" y="52" class="fl-small fl-gold">target 15%</text>
       <text x="240" y="94" class="fl-small">the reserve</text>
       <g transform="translate(430 70)">
         <rect x="-44" y="-24" width="88" height="48" rx="8" fill="#081130" stroke="#AEB8CE" stroke-width="1.5"/>
         <text x="0" y="-3" class="fl-small">redemptions</text><text x="0" y="11" class="fl-small">served first</text>
       </g>
-      <g transform="translate(150 186)">
-        <rect x="-62" y="-14" width="124" height="28" rx="6" fill="#081130" stroke="#D9AE4B" stroke-width="1.5"/>
+      <g transform="translate(148 186)">
+        <rect x="-70" y="-14" width="140" height="28" rx="6" fill="#081130" stroke="#D9AE4B" stroke-width="1.5"/>
         <text x="0" y="4" class="fl-small">STACK burn auction</text>
       </g>
-      <g transform="translate(330 186)">
-        <rect x="-62" y="-14" width="124" height="28" rx="6" fill="#081130" stroke="#3D63F5" stroke-width="1.5"/>
+      <g transform="translate(332 186)">
+        <rect x="-70" y="-14" width="140" height="28" rx="6" fill="#081130" stroke="#3D63F5" stroke-width="1.5"/>
         <text x="0" y="4" class="fl-small">OCT/USDe liquidity</text>
       </g>
       <text x="240" y="166" class="fl-small fl-gold" style="font-size:10px">surplus above target</text>
@@ -560,7 +564,7 @@
       <!-- the surplus flows only while the level stands above the target line (the level's own 6-second cycle) -->
       <circle r="3.5" fill="#E9C66F" opacity="0"><animate attributeName="opacity" values="0;0;.9;.9;0;0" keyTimes="0;0.37;0.38;0.84;0.85;1" dur="6s" repeatCount="indefinite"/><animateMotion dur="6s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.37;0.85;1"><mpath href="#fr-p3"/></animateMotion></circle>
       <circle r="3.5" fill="#E9C66F" opacity="0"><animate attributeName="opacity" values="0;0;.9;.9;0;0" keyTimes="0;0.5;0.51;0.96;0.97;1" dur="6s" repeatCount="indefinite"/><animateMotion dur="6s" repeatCount="indefinite" calcMode="linear" keyPoints="0;0;1;1" keyTimes="0;0.5;0.97;1"><mpath href="#fr-p4"/></animateMotion></circle>
-      <text x="240" y="222" class="fl-cap" style="font-size:12px">The reserve: your vault is touched only when it is empty</text>
+      <text x="240" y="222" class="fl-cap" style="font-size:12px">Target 15% of all OCT; vaults are touched only when it is empty</text>
     </svg>
   </figure>
   </div>
@@ -603,7 +607,7 @@
   <div class="grid-2">
     <div class="box">
       <h3>Reserve deposit</h3>
-      <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. In return you earn what the reserve earns for serving the market, the redemption fees and the standing offer's premium: depositors receive their share of the pot and never less than half, set aside in wstETH and claimable at any time, plus STACK for every day served while the rewards contract holds any. The deposit is part of your succession plan. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
+      <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. In return you earn what the reserve earns for serving the market, the redemption fees and the standing offer's premium: depositors receive their share of the pot and never less than half, set aside in wstETH and claimable at any time, plus STACK for every day served while the rewards contract holds any. The deposit and its unclaimed fees are part of your succession plan and are paid out to your heirs' wallets at settlement. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
       <dl class="kv">
         <dt>Your reserve deposit</dt><dd id="rd-mine">—</dd>
         <dt>Unlocks</dt><dd id="rd-unlock">—</dd>
@@ -624,7 +628,7 @@
     </div>
     <div class="box">
       <h3>Burn auction</h3>
-      <p class="small">Half of what the waterfall releases is sold here for STACK, lot by lot, and the STACK is burned. The price starts high and falls over 48 hours to a tenth of its start, then holds until someone buys; the next lot starts at twice the last clearing price. No pool, no router, no keys: two tokens and a clock, so it works in any decade. The other half goes to the protocol-owned-liquidity keeper, which turns it into OCT through the standing offer and places it one-sided in the market pool when OCT trades at or above par.</p>
+      <p class="small">Once the protocol's own liquidity holds 10% of the circulating OCT, half of what the waterfall releases is sold here for STACK, lot by lot, and the STACK is burned. The price starts high and falls over 48 hours to a tenth of its start, then holds until someone buys; the next lot starts at twice the last clearing price. No pool, no router, no keys: two tokens and a clock, so it works in any decade. The rest goes to the protocol-owned-liquidity keeper, which turns it into OCT through the standing offer and places it one-sided in the market pool when OCT trades at or above par. The pool's own trading fees follow the same target: below it they compound into the pool, above it they go to the reserve. Nobody can take them out.</p>
       <dl class="kv">
         <dt>On offer</dt><dd id="au-lot">—</dd>
         <dt>Price now</dt><dd id="au-price">—</dd>
@@ -688,7 +692,7 @@
   <div class="grid-2">
     <div class="box" id="lp-box">
       <h3>Provide liquidity through the protocol</h3>
-      <p class="small">Put OCT and USDe into the pool through the protocol's liquidity desk and earn the trading fees. The desk holds the position for you in the band 0.98 to 1.02 around par, only you can add to it, collect from it or withdraw it, and it is part of your succession plan: after a year of silence it is unwound and handed to your heirs with everything else. Liquidity added on Uniswap directly is yours alone and passes to nobody.</p>
+      <p class="small">Put OCT and USDe into the pool through the protocol's liquidity desk and earn the trading fees. The desk holds the position for you in the band 0.98 to 1.02 around par, only you can add to it, collect from it or withdraw it, and it is part of your succession plan: after a year of silence it is unwound and the OCT and USDe land in your heirs' wallets with everything else. Liquidity added on Uniswap directly is yours alone and passes to nobody.</p>
       <dl class="kv">
         <dt>Your position</dt><dd id="lp-mine">—</dd>
         <dt>Fees booked so far</dt><dd id="lp-owed">—</dd>

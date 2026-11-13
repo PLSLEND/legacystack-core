@@ -199,6 +199,7 @@ contract RedemptionBufferTest is LegacyStackBase {
 }
 
 interface IBufferServe { function serveRedemption(address, uint, uint, uint) external returns (uint); }
+interface IBufferPay { function payoutForSuccession(address, address) external returns (uint, uint, uint); }
 
 /// Fee sharing with reserve depositors and the deposit's succession (LS_06 #171).
 contract ReserveFeeSharingTest is LegacyStackBase {
@@ -272,9 +273,10 @@ contract ReserveFeeSharingTest is LegacyStackBase {
         assertEq(IBuffer(buffer).feesOf(carol), fee + (quote - par), "the premium above par, all of it");
     }
 
-    function test_depositPassesToTheHeirsAsADepositWithItsFeesAndPoints() public {
+    function test_depositIsPaidOutToTheHeirsInWstETHWhenTheReserveCanAffordIt() public {
         _open(bob, 50 ether, 20000e18);
         _open(alice, 4 ether, 4000e18);
+        vm.prank(dave); IBuffer(buffer).fill(20 ether);        // the protocol's own capital: the pot is well above target
         vm.prank(alice); IBuffer(buffer).deposit(10 ether);
         address[] memory heirs = new address[](2); heirs[0] = carol; heirs[1] = dave;
         uint16[] memory bps = new uint16[](2); bps[0] = 7000; bps[1] = 3000;
@@ -282,31 +284,51 @@ contract ReserveFeeSharingTest is LegacyStackBase {
         _redeem(bob, 5000e18);                                 // alice earns fees as the only depositor
         uint fees = IBuffer(buffer).feesOf(alice);
         assertGt(fees, 0);
-        uint lock = IBuffer(buffer).lockedUntil(alice);
-        // a year of silence and thirty days of grace; nobody can move the deposit before that
+        // alive: nobody can touch the deposit
         vm.expectRevert(bytes("RedemptionBuffer: caller is not the SuccessionRegistry"));
-        IBuffer(buffer).transferDepositForSuccession(alice, carol, 1 ether);
+        IBufferPay(buffer).payoutForSuccession(alice, carol);
         vm.warp(block.timestamp + 395 days + 1);
-        uint points = IBuffer(buffer).pointsOf(alice);
-        uint potBefore = _pot();
+        uint cBefore = IMockWst(wst).balanceOf(carol); uint dBefore = IMockWst(wst).balanceOf(dave);
+        uint potBefore = IBuffer(buffer).pot();
         IRegistry(registry).execute(alice);
-        // nothing left the reserve (the settlement even paid collateral in); the deposit, its fees and its
-        // points are the heirs' now, 70/30
-        assertGe(_pot(), potBefore, "nothing left the reserve");
+        // the pot stays above its target without the deposit, so the whole principal and the fees are paid
+        // out in wstETH, straight into the heirs' wallets, 70/30, together with the vault's leftover collateral
         assertEq(IBuffer(buffer).depositOf(alice), 0);
-        assertEq(IBuffer(buffer).depositOf(carol), 7 ether);
-        assertEq(IBuffer(buffer).depositOf(dave), 3 ether);
-        assertEq(IBuffer(buffer).totalDeposits(), 10 ether);
+        assertEq(IBuffer(buffer).depositOf(carol), 0, "no position left for the heir");
+        assertEq(IBuffer(buffer).totalDeposits(), 0);
         assertEq(IBuffer(buffer).feesOf(alice), 0);
-        assertApproxEqAbs(IBuffer(buffer).feesOf(carol), fees * 7 / 10, 1);
-        assertApproxEqAbs(IBuffer(buffer).feesOf(dave), fees * 3 / 10, 1);
-        assertApproxEqAbs(IBuffer(buffer).pointsOf(carol), points * 7 / 10, 1e9);
-        assertEq(IBuffer(buffer).lockedUntil(carol), lock, "the heir inherits the lock");
-        // the heirs act for themselves from here: carol claims her fees, and may withdraw once the pot allows
-        vm.prank(carol); uint got = IBuffer(buffer).claimFees();
-        assertApproxEqAbs(got, fees * 7 / 10, 1);
+        uint cGot = IMockWst(wst).balanceOf(carol) - cBefore; uint dGot = IMockWst(wst).balanceOf(dave) - dBefore;
+        assertGe(cGot, 7 ether + fees * 7 / 10);
+        assertGe(dGot, 3 ether + fees * 3 / 10);
+        assertApproxEqRel(cGot * 3, dGot * 7, 1e15, "70/30");
+        assertGe(IBuffer(buffer).pot(), potBefore - 10 ether, "the settlement paid collateral in; the deposit went out");
         (uint8 state,,) = IRegistry(registry).successionState(alice);
         assertEq(state, 4);
+    }
+
+    function test_depositIsPaidOutInOctWhenThePotIsAtTargetAndTheRestStaysADeposit() public {
+        _open(bob, 500 ether, 200000e18);                     // a big book: the target is 15% of ~204,000 OCT, about 15 wstETH
+        _open(alice, 4 ether, 4000e18);
+        vm.prank(alice); IBuffer(buffer).deposit(10 ether);  // the pot holds only her 10: below target, no room for wstETH
+        address[] memory heirs = new address[](2); heirs[0] = carol; heirs[1] = dave;
+        uint16[] memory bps = new uint16[](2); bps[0] = 7000; bps[1] = 3000;
+        vm.prank(alice); IRegistry(registry).setPlan(heirs, bps, address(0));
+        uint inventory = _inventory();                       // the mint fees: 1,020 OCT, worth 0.51 wstETH
+        assertGt(inventory, 0);
+        vm.warp(block.timestamp + 395 days + 1);
+        vm.prank(bob); ISP(sp).provideToSP(20000e18);         // settlement liquidity for alice's vault
+        uint cOct = IERC20L(oct).balanceOf(carol); uint dOct = IERC20L(oct).balanceOf(dave);
+        IRegistry(registry).execute(alice);
+        // the inventory pays what it can in OCT at the oracle price; the rest stays a deposit, split 70/30
+        uint octPaid = (IERC20L(oct).balanceOf(carol) - cOct) + (IERC20L(oct).balanceOf(dave) - dOct);
+        assertGt(octPaid, 0);
+        uint paidAsColl = octPaid * 1e18 / _price();
+        assertEq(IBuffer(buffer).depositOf(alice), 0);
+        assertApproxEqAbs(IBuffer(buffer).depositOf(carol) + IBuffer(buffer).depositOf(dave), 10 ether - paidAsColl, 10, "the rest is the heirs' deposit");
+        assertApproxEqRel(IBuffer(buffer).depositOf(carol) * 3, IBuffer(buffer).depositOf(dave) * 7, 1e12, "70/30");
+        assertEq(IBuffer(buffer).totalDeposits(), 10 ether - paidAsColl + (10 ether - paidAsColl == IBuffer(buffer).depositOf(carol) + IBuffer(buffer).depositOf(dave) ? 0 : 0));
+        // the heirs act for themselves from here: the lock is inherited, a withdrawal waits for the target
+        assertEq(IBuffer(buffer).lockedUntil(carol), IBuffer(buffer).lockedUntil(alice));
     }
 
 }

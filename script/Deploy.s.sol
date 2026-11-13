@@ -125,11 +125,11 @@ contract Deploy is Script {
         IDeployHint(a.hh).setAddresses(a.st, a.tm);
         IDeployBuffer(a.buffer).setAddresses(a.tm, a.bo, a.feed, a.oct, a.wst, a.splitter, a.registry);
         IDeployRegistry(a.registry).setAddresses(a.bo, a.tm, a.sp, a.csp, a.oct, a.wst, a.buffer);
-        a.desk = _deployArgs("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(a.tm, a.bo, a.st, a.feed, a.buffer, a.registry, a.oct, a.wst));
         // Liquidity through the protocol (#171): OCT/USDe positions held for their owners, inherited with the plan
         if (a.pool != address(0)) {
             a.lpDesk = _deployArgs("src/periphery/LiquidityDesk.sol:LiquidityDesk", abi.encode(a.oct, a.pool, npm, a.registry));
         }
+        a.desk = _deployArgs("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(a.tm, a.bo, a.st, a.feed, a.buffer, a.registry, a.oct, a.wst, a.lpDesk));
 
         // Seed: a deployer vault (its OCT seeds the pool below) and 1 OCT in the Stability Pool (the pool's
         // permanent minimum).

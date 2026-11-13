@@ -8,10 +8,11 @@ pragma solidity 0.8.28;
 *
 * What a run does, in order: accrue interest; liquidate the vaults passed in (the protocol pays 200 OCT plus
 * 0.5% of the collateral per vault, Liquity's gas compensation); execute the successions passed in (the
-* protocol pays the estate's executor reward); skim the staking yield of the vaults passed in whose auto-repay
+* protocol pays the estate's executor reward) and hand each settled estate's protocol-provided liquidity to
+* its heirs through the liquidity desk, so one press moves everything; skim the staking yield of the vaults passed in whose auto-repay
 * is due (the protocol pays 1% of the OCT, capped at 5 OCT); and, when `tend` is set, the reserve's
 * housekeeping: release the surplus if one is due, split whatever the surplus sink holds, let the POL keeper
-* work and harvest its fees (no reward, a few thousand gas); then sweep the OCT and collateral this contract
+* work and harvest its fees (the splitter pays the caller 0.1% of what it splits); then sweep the OCT and collateral this contract
 * received to the caller. The caller chooses the categories, so a frequent job such as a liquidation pays only
 * for itself (LS_06 #169). Steps that have nothing to do are skipped, never reverted, so a run always finishes.
 * `pending()` is the matching read: it scans the riskiest vaults and reports what a run would do, roughly
@@ -54,6 +55,7 @@ interface IDeskRegistry {
     function REWARD_CAP() external view returns (uint);
 }
 interface IDeskERC20 { function balanceOf(address) external view returns (uint); function transfer(address, uint) external returns (bool); }
+interface IDeskLiquidity { function positionOf(address owner) external view returns (uint); function inherit(address owner) external; }
 
 contract KeeperDesk {
     IDeskTroveManager public immutable troveManager;
@@ -64,10 +66,11 @@ contract KeeperDesk {
     IDeskRegistry public immutable successionRegistry;
     IDeskERC20 public immutable octToken;
     IDeskERC20 public immutable collateralToken;
+    address public immutable liquidityDesk;         // zero on a chain without the market pool
 
     event Run(address indexed caller, uint liquidated, uint executed, uint skimmed, uint surplusReleased, uint octPaid, uint collPaid);
 
-    constructor(address _troveManager, address _borrowerOperations, address _sortedTroves, address _priceFeed, address _buffer, address _registry, address _oct, address _coll) {
+    constructor(address _troveManager, address _borrowerOperations, address _sortedTroves, address _priceFeed, address _buffer, address _registry, address _oct, address _coll, address _liquidityDesk) {
         troveManager = IDeskTroveManager(_troveManager);
         borrowerOperations = IDeskBorrowerOperations(_borrowerOperations);
         sortedTroves = IDeskSortedTroves(_sortedTroves);
@@ -76,6 +79,7 @@ contract KeeperDesk {
         successionRegistry = IDeskRegistry(_registry);
         octToken = IDeskERC20(_oct);
         collateralToken = IDeskERC20(_coll);
+        liquidityDesk = _liquidityDesk;
     }
 
     /// The chosen categories, in one transaction. Rewards go to the caller.
@@ -90,6 +94,12 @@ contract KeeperDesk {
         uint executed;
         for (uint i = 0; i < _execute.length; i++) {
             try successionRegistry.execute(_execute[i]) { executed++; } catch {}
+            // the estate's liquidity provided through the protocol goes to the heirs in the same press
+            if (liquidityDesk != address(0)) {
+                try IDeskLiquidity(liquidityDesk).positionOf(_execute[i]) returns (uint tokenId) {
+                    if (tokenId != 0) { try IDeskLiquidity(liquidityDesk).inherit(_execute[i]) {} catch {} }
+                } catch {}
+            }
         }
 
         uint skimmed;

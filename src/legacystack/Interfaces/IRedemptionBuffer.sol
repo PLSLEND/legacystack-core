@@ -25,6 +25,7 @@ interface IRedemptionBuffer {
     event FeeShared(uint _fee, uint _toDepositors);
     event FeesClaimed(address indexed _depositor, uint _collAmount);
     event DepositInherited(address indexed _owner, address indexed _heir, uint _collAmount, uint _fees);
+    event DepositPaidOut(address indexed _owner, uint _collOut, uint _octOut, uint _left);
 
     function setAddresses(
         address _troveManagerAddress,
@@ -89,7 +90,11 @@ interface IRedemptionBuffer {
     // Anyone: take the shared fees earned so far, in wstETH (#171).
     function claimFees() external returns (uint);
 
-    // SuccessionRegistry only: a dead depositor's deposit passes to an heir as a deposit (#171).
+    // SuccessionRegistry only: a dead depositor's deposit is paid out for the heirs, wstETH as far as the pot
+    // stays at target, then OCT from the inventory; what is left stays a deposit (#172).
+    function payoutForSuccession(address _owner, address _to) external returns (uint collOut, uint octOut, uint left);
+
+    // SuccessionRegistry only: what payoutForSuccession could not pay passes to an heir as a deposit (#171).
     function transferDepositForSuccession(address _owner, address _heir, uint _collAmount) external;
 
     // Anyone: release what the waterfall allows today to the surplus sink.

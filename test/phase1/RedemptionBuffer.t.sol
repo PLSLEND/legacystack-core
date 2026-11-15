@@ -131,10 +131,10 @@ contract RedemptionBufferTest is LegacyStackBase {
     function test_targetAndSurplusWaterfall() public {
         _open(alice, 10 ether, 5000e18);
         _open(bob, 10 ether, 5000e18);
-        // circulating supply excludes the inventory; target is 15% of it in USD
+        // circulating supply excludes what the protocol holds: the inventory and the gas pool; target is 15% of it in USD
         uint circulating = IBuffer(buffer).circulatingSupply();
-        assertEq(circulating, 10400e18); // 10,000 borrowed + 400 gas compensation in the Gas Pool; 50 of fees excluded
-        assertEq(IBuffer(buffer).target(), 1560e18);
+        assertEq(circulating, 10000e18); // 10,000 borrowed; the 400 of gas compensation parked in the Gas Pool and the 50 of fees excluded
+        assertEq(IBuffer(buffer).target(), 1500e18);
         uint price = _price();
         // below target: nothing
         assertEq(IBuffer(buffer).releasable(price), 0);
@@ -142,8 +142,8 @@ contract RedemptionBufferTest is LegacyStackBase {
         vm.expectRevert(bytes("RedemptionBuffer: nothing to release"));
         IBuffer(buffer).releaseSurplus();
         // inside the 100-200% band: half of the band is releasable, 5% of the own pot per day
-        vm.prank(carol); IBuffer(buffer).fill(1 ether);          // $2,000 against a $1,560 target: band $440
-        assertEq(IBuffer(buffer).releasable(price), 220e18 * 1e18 / price);
+        vm.prank(carol); IBuffer(buffer).fill(1 ether);          // $2,000 against a $1,500 target: band $500
+        assertEq(IBuffer(buffer).releasable(price), 250e18 * 1e18 / price);
         uint released = IBuffer(buffer).releaseSurplus();
         assertEq(released, 0.05 ether);
         assertEq(IMockWst(wst).balanceOf(surplusSink), 0.05 ether);
@@ -151,7 +151,7 @@ contract RedemptionBufferTest is LegacyStackBase {
         IBuffer(buffer).releaseSurplus();
         // far above: half the band plus everything above 200%, still capped at 5% a day
         vm.prank(carol); IBuffer(buffer).fill(99.05 ether);     // own pot 100 wstETH = $200,000
-        assertEq(IBuffer(buffer).releasable(price), (780e18 + 196_880e18) * 1e18 / price);
+        assertEq(IBuffer(buffer).releasable(price), (750e18 + 197_000e18) * 1e18 / price);
         vm.warp(block.timestamp + 1 days);
         assertEq(IBuffer(buffer).releaseSurplus(), 5 ether);
         vm.warp(block.timestamp + 1 days);
@@ -329,6 +329,80 @@ contract ReserveFeeSharingTest is LegacyStackBase {
         assertEq(IBuffer(buffer).totalDeposits(), 10 ether - paidAsColl + (10 ether - paidAsColl == IBuffer(buffer).depositOf(carol) + IBuffer(buffer).depositOf(dave) ? 0 : 0));
         // the heirs act for themselves from here: the lock is inherited, a withdrawal waits for the target
         assertEq(IBuffer(buffer).lockedUntil(carol), IBuffer(buffer).lockedUntil(alice));
+        // and the rest is marked as inherited: anyone may finish the payout once the reserve can spare it (#173)
+        assertEq(IBuffer(buffer).inheritedOf(carol), IBuffer(buffer).depositOf(carol));
+        assertEq(IBuffer(buffer).inheritedOf(dave), IBuffer(buffer).depositOf(dave));
+        assertEq(IBuffer(buffer).payoutQueueLength(), 2);
+        (uint qc, uint qo) = IBuffer(buffer).payoutQuote(carol, _price());
+        assertEq(qc + qo, 0, "nothing to spare yet");
+        vm.expectRevert(bytes("RedemptionBuffer: the reserve cannot spare it yet"));
+        IBuffer(buffer).finishPayout(carol);
+    }
+
+    function test_anyoneFinishesTheInheritedPayoutOnceTheReserveCanSpareItAndEarnsTheCut() public {
+        _open(bob, 500 ether, 200000e18);
+        _open(alice, 4 ether, 4000e18);
+        vm.prank(alice); IBuffer(buffer).deposit(10 ether);
+        address[] memory heirs = new address[](2); heirs[0] = carol; heirs[1] = dave;
+        uint16[] memory bps = new uint16[](2); bps[0] = 7000; bps[1] = 3000;
+        vm.prank(alice); IRegistry(registry).setPlan(heirs, bps, address(0));
+        vm.warp(block.timestamp + 395 days + 1);
+        vm.prank(bob); ISP(sp).provideToSP(20000e18);
+        IRegistry(registry).execute(alice);
+        uint carolDue = IBuffer(buffer).inheritedOf(carol); uint daveDue = IBuffer(buffer).inheritedOf(dave);
+        assertGt(carolDue, 0); assertGt(daveDue, 0);
+        // the reserve fills up (fees, or here a fill): now it can spare the heirs' principal
+        vm.prank(bob); IBuffer(buffer).fill(40 ether);
+        (uint qc,) = IBuffer(buffer).payoutQuote(carol, _price());
+        assertEq(qc, carolDue, "the whole inherited deposit is payable in wstETH");
+        uint cW = IMockWst(wst).balanceOf(carol); uint eW = IMockWst(wst).balanceOf(address(0xE0));
+        vm.prank(address(0xE0)); (uint collOut, uint octOut, uint left) = IBuffer(buffer).finishPayout(carol);
+        assertEq(collOut, carolDue); assertEq(octOut, 0); assertEq(left, 0);
+        uint cut = carolDue / 1000;                                      // 0.1%, under the 0.02 cap
+        assertEq(IMockWst(wst).balanceOf(carol) - cW, carolDue - cut, "the heir has the rest in her wallet");
+        assertEq(IMockWst(wst).balanceOf(address(0xE0)) - eW, cut, "the one who pressed is paid");
+        assertEq(IBuffer(buffer).depositOf(carol), 0); assertEq(IBuffer(buffer).inheritedOf(carol), 0);
+        assertEq(IBuffer(buffer).payoutQueueLength(), 1); assertEq(IBuffer(buffer).payoutQueueAt(0), dave);
+        vm.expectRevert(bytes("RedemptionBuffer: nothing inherited to pay out"));
+        IBuffer(buffer).finishPayout(carol);
+        // a depositor's own deposit is never pushable by a third party: dave adds his own 5, only the inherited 3 can go
+        vm.prank(dave); IBuffer(buffer).deposit(5 ether);
+        assertEq(IBuffer(buffer).inheritedOf(dave), daveDue);
+        uint dW = IMockWst(wst).balanceOf(dave);
+        (collOut,,) = IBuffer(buffer).finishPayout(dave);
+        assertEq(collOut, daveDue);
+        assertEq(IBuffer(buffer).depositOf(dave), 5 ether, "his own deposit stays, still locked");
+        assertEq(IBuffer(buffer).inheritedOf(dave), 0);
+        assertEq(IBuffer(buffer).payoutQueueLength(), 0);
+        assertEq(IMockWst(wst).balanceOf(dave) - dW, daveDue - daveDue / 1000);
+    }
+
+    function test_theKeeperDeskFinishesInheritedPayoutsInTheHousekeepingPress() public {
+        address desk = deployCode("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(tm, bo, st, pf, buffer, registry, oct, wst, address(0)));
+        _open(bob, 500 ether, 200000e18);
+        _open(alice, 4 ether, 4000e18);
+        vm.prank(alice); IBuffer(buffer).deposit(10 ether);
+        address[] memory heirs = new address[](1); heirs[0] = carol;
+        uint16[] memory bps = new uint16[](1); bps[0] = 10000;
+        vm.prank(alice); IRegistry(registry).setPlan(heirs, bps, address(0));
+        vm.warp(block.timestamp + 395 days + 1);
+        vm.prank(bob); ISP(sp).provideToSP(20000e18);
+        IRegistry(registry).execute(alice);
+        uint due = IBuffer(buffer).inheritedOf(carol);
+        assertGt(due, 0);
+        address[] memory none;
+        // nothing to spare: the press does nothing and never reverts
+        vm.prank(dave); IDeskRun(desk).run(none, none, none, true);
+        assertEq(IBuffer(buffer).inheritedOf(carol), due);
+        // the reserve can spare it: the same press pays carol and the presser
+        vm.prank(bob); IBuffer(buffer).fill(40 ether);
+        uint cW = IMockWst(wst).balanceOf(carol); uint dW = IMockWst(wst).balanceOf(dave);
+        vm.prank(dave); IDeskRun(desk).run(none, none, none, true);
+        assertEq(IBuffer(buffer).inheritedOf(carol), 0);
+        assertEq(IMockWst(wst).balanceOf(carol) - cW, due - due / 1000);
+        assertGe(IMockWst(wst).balanceOf(dave) - dW, due / 1000, "the cut reached the one who pressed");
+        assertEq(IBuffer(buffer).payoutQueueLength(), 0);
     }
 
 }
+interface IDeskRun { function run(address[] calldata, address[] calldata, address[] calldata, bool) external returns (uint, uint); }

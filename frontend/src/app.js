@@ -260,6 +260,17 @@ async function refreshDeposit() {
   $('btn-claim-stack').disabled = claimable === 0n;
   $('rd-fees').textContent = `${fmt(fees, 5)} wstETH`;
   $('btn-claim-fees').disabled = fees === 0n;
+  const inherited = await read(D.redemptionBuffer, A.bufferAbi, 'inheritedOf', [me]).catch(() => 0n);
+  const row = $('rd-inherited-row');
+  if (row) {
+    row.classList.toggle('hidden', inherited === 0n);
+    if (inherited > 0n) {
+      const [qc, qo] = await read(D.redemptionBuffer, A.bufferAbi, 'payoutQuote', [me, price]).catch(() => [0n, 0n]);
+      const payable = qc > 0n || qo > 0n;
+      $('rd-inherited').textContent = `${fmt(inherited, 4)} wstETH waiting${payable ? `: ${fmt(qc, 4)} wstETH${qo > 0n ? ` and ${fmt(qo, 2)} OCT` : ''} can be paid out now` : ' until the reserve can spare it'}`;
+      $('btn-payout').disabled = !payable;
+    }
+  }
   $('rd-share').textContent = shareBps === 0n ? 'no deposits yet' : `${(Number(shareBps) / 100).toFixed(1)}% of each fee`;
 }
 
@@ -423,7 +434,8 @@ async function refreshDesk() {
     $('k-liq').textContent = desk.liquidatable.length ? `${desk.liquidatable.length} (${desk.liquidatable.map(short).join(', ')})` : 'none';
     $('k-exe').textContent = desk.executable.length ? `${desk.executable.length} (${desk.executable.map(short).join(', ')})` : 'none';
     $('k-skim').textContent = desk.skimmable.length ? `${desk.skimmable.length} (${desk.skimmable.map(short).join(', ')})` : 'none due';
-    $('k-tend').textContent = desk.tend ? 'a release, a split or a pool deposit is due' : 'nothing due';
+    const payouts = desk.payouts ?? 0n;
+    $('k-tend').textContent = payouts > 0n ? `${payouts} inherited deposit${payouts === 1n ? '' : 's'} to pay out${desk.tend ? ', plus a release, a split or a pool deposit' : ''}` : desk.tend ? 'a release, a split or a pool deposit is due' : 'nothing due';
     const any = desk.octReward > 0n || desk.collReward > 0n;
     $('k-reward').textContent = any ? `≈ ${fmt(desk.octReward, 0)} OCT + ${fmt(desk.collReward, 4)} wstETH` : 'none pending';
     $('k-reward').style.color = any ? 'var(--gold-2)' : '';
@@ -774,6 +786,7 @@ async function boot() {
   $('btn-withdraw').addEventListener('click', withdrawReserve);
   $('btn-claim-stack').addEventListener('click', () => send('Claim STACK', () => write(D.reserveRewards, A.rewardsAbi, 'claim')));
   $('btn-claim-fees').addEventListener('click', () => send('Claim fees', () => write(D.redemptionBuffer, A.bufferAbi, 'claimFees')));
+  $('btn-payout')?.addEventListener('click', () => send('Pay out the inherited deposit', () => write(D.redemptionBuffer, A.bufferAbi, 'finishPayout', [me])));
   $('form-lp').addEventListener('submit', lpAdd);
   $('btn-lp-collect').addEventListener('click', () => send('Collect fees', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'collect')));
   $('btn-lp-withdraw').addEventListener('click', () => send('Withdraw liquidity', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'withdraw', [0n])));

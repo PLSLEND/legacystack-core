@@ -26,6 +26,7 @@ interface IRedemptionBuffer {
     event FeesClaimed(address indexed _depositor, uint _collAmount);
     event DepositInherited(address indexed _owner, address indexed _heir, uint _collAmount, uint _fees);
     event DepositPaidOut(address indexed _owner, uint _collOut, uint _octOut, uint _left);
+    event InheritedPaidOut(address indexed _heir, address indexed _caller, uint _collOut, uint _octOut, uint _left, uint _cutColl, uint _cutOct);
 
     function setAddresses(
         address _troveManagerAddress,
@@ -34,7 +35,8 @@ interface IRedemptionBuffer {
         address _octTokenAddress,
         address _collateralTokenAddress,
         address _surplusSink,
-        address _successionRegistryAddress
+        address _successionRegistryAddress,
+        address _gasPoolAddress
     ) external;
 
     // --- Views ---
@@ -42,7 +44,7 @@ interface IRedemptionBuffer {
     function pot() external view returns (uint);                    // wstETH held
     function inventory() external view returns (uint);              // OCT held
     function potValue(uint _price) external view returns (uint);    // pot in USD (18 decimals) at _price
-    function circulatingSupply() external view returns (uint);      // OCT supply minus inventory
+    function circulatingSupply() external view returns (uint);      // OCT minted minus the reserve's inventory and the gas pool's OCT
     function target() external view returns (uint);                 // USD value the pot aims for
     function redeemCapacity(uint _price) external view returns (uint); // OCT the buffer can take now
     function debtCeiling(uint _price) external view returns (uint); // $1M + $100 per $1 in the pot
@@ -96,6 +98,13 @@ interface IRedemptionBuffer {
 
     // SuccessionRegistry only: what payoutForSuccession could not pay passes to an heir as a deposit (#171).
     function transferDepositForSuccession(address _owner, address _heir, uint _collAmount) external;
+
+    // Inherited deposits: anyone finishes the payout to the heir's wallet when the reserve can spare it (#173)
+    function inheritedOf(address _heir) external view returns (uint);
+    function finishPayout(address _heir) external returns (uint collOut, uint octOut, uint left);
+    function payoutQuote(address _heir, uint _price) external view returns (uint collOut, uint octOut);
+    function payoutQueueLength() external view returns (uint);
+    function payoutQueueAt(uint _i) external view returns (address);
 
     // Anyone: release what the waterfall allows today to the surplus sink.
     function releaseSurplus() external returns (uint);

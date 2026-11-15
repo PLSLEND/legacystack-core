@@ -83,6 +83,16 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
     mapping(address => uint) internal feeOwedTo;            // fees checkpointed for a depositor, in wstETH
     uint public override totalFeesShared;                   // all-time wstETH credited to depositors
 
+    // Inherited deposits (#173): the part of a deposit that reached an heir through succession and is still
+    // waiting to be paid out to the heir's wallet. Anyone may finish the payout when the reserve can spare it.
+    address public gasPoolAddress;                          // OCT parked as liquidation compensation: not in circulation
+    mapping(address => uint) public override inheritedOf;
+    address[] internal payoutQueue;                         // heirs with an inherited deposit waiting
+    mapping(address => uint) internal queuePos;             // 1-based position in payoutQueue, 0 = not queued
+    uint constant public PAYOUT_CUT_BPS = 10;               // the finisher's cut: 0.1% of what is paid out ...
+    uint constant public PAYOUT_CUT_CAP = 2e16;             // ... at most 0.02 wstETH ...
+    uint constant public PAYOUT_CUT_CAP_OCT = 50e18;        // ... and at most 50 OCT of an OCT payout
+
     constructor() public {
         lastRelease = block.timestamp;
     }
@@ -96,7 +106,8 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         address _octTokenAddress,
         address _collateralTokenAddress,
         address _surplusSink,
-        address _successionRegistryAddress
+        address _successionRegistryAddress,
+        address _gasPoolAddress
     )
         external
         override
@@ -108,6 +119,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         checkContract(_octTokenAddress);
         checkContract(_collateralTokenAddress);
         checkContract(_successionRegistryAddress);
+        checkContract(_gasPoolAddress);
         require(_surplusSink != address(0), "RedemptionBuffer: zero sink");
 
         troveManagerAddress = _troveManagerAddress;
@@ -117,6 +129,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         collateralToken = IERC20(_collateralTokenAddress);
         surplusSink = _surplusSink;
         successionRegistryAddress = _successionRegistryAddress;
+        gasPoolAddress = _gasPoolAddress;
 
         _renounceOwnership();
     }
@@ -162,10 +175,12 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         return pot().mul(_price).div(DECIMAL_PRECISION);
     }
 
+    // OCT in circulation: everything minted, minus what the protocol itself holds and nobody can trade or
+    // redeem: the reserve's inventory and the gas pool's parked compensation. Internal counters only.
     function circulatingSupply() public view override returns (uint) {
         uint supply = octToken.totalSupply();
-        uint inv = inventory();
-        return supply > inv ? supply.sub(inv) : 0;
+        uint held = inventory().add(octToken.balanceOf(gasPoolAddress));
+        return supply > held ? supply.sub(held) : 0;
     }
 
     function target() public view override returns (uint) {
@@ -291,6 +306,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         _checkpointFees(msg.sender);
         depositOf[msg.sender] = depositOf[msg.sender].sub(_collAmount);
         totalDeposits = totalDeposits.sub(_collAmount);
+        _trimInherited(msg.sender);
         require(collateralToken.transfer(msg.sender, _collAmount), "RedemptionBuffer: collateral transfer failed");
         emit Withdrawn(msg.sender, _collAmount);
     }
@@ -313,12 +329,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         require(msg.sender == successionRegistryAddress, "RedemptionBuffer: caller is not the SuccessionRegistry");
         _checkpoint(_owner);
         _checkpointFees(_owner);
-        uint fees = feeOwedTo[_owner];
-        if (fees > 0) {
-            feeOwedTo[_owner] = 0;
-            feesOwed = feesOwed.sub(fees);
-            collOut = fees;
-        }
+        collOut = _takeFees(_owner);
         uint principal = depositOf[_owner];
         if (principal > 0) {
             (uint collPart, uint octPart, uint paid) = _payoutParts(principal);
@@ -327,6 +338,7 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
             collOut = collOut.add(collPart);
             octOut = octPart;
             left = principal.sub(paid);
+            _trimInherited(_owner);
         }
         if (collOut > 0) { require(collateralToken.transfer(_to, collOut), "RedemptionBuffer: collateral transfer failed"); }
         if (octOut > 0) { require(octToken.transfer(_to, octOut), "RedemptionBuffer: OCT transfer failed"); }
@@ -336,15 +348,89 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
     // How a principal is paid out: wstETH while the pot stays at target, OCT from the inventory at the oracle
     // price for the rest; `paid` is the principal covered by both, in wstETH.
     function _payoutParts(uint _principal) internal returns (uint collPart, uint octPart, uint paid) {
-        uint price = priceFeed.fetchPrice();
-        uint targetColl = target().mul(DECIMAL_PRECISION).div(price);
+        return _payoutPartsAt(_principal, priceFeed.fetchPrice());
+    }
+
+    function _payoutPartsAt(uint _principal, uint _price) internal view returns (uint collPart, uint octPart, uint paid) {
+        uint targetColl = target().mul(DECIMAL_PRECISION).div(_price);
         uint p = pot();
         uint room = p > targetColl ? p.sub(targetColl) : 0;
         collPart = LiquityMath._min(_principal, room);
         uint rest = _principal.sub(collPart);
-        octPart = LiquityMath._min(rest.mul(price).div(DECIMAL_PRECISION), inventory());
-        uint octAsColl = LiquityMath._min(octPart.mul(DECIMAL_PRECISION).div(price), rest);
+        octPart = LiquityMath._min(rest.mul(_price).div(DECIMAL_PRECISION), inventory());
+        uint octAsColl = LiquityMath._min(octPart.mul(DECIMAL_PRECISION).div(_price), rest);
         paid = collPart.add(octAsColl);
+    }
+
+    function _takeFees(address _who) internal returns (uint fees) {
+        fees = feeOwedTo[_who];
+        if (fees > 0) {
+            feeOwedTo[_who] = 0;
+            feesOwed = feesOwed.sub(fees);
+        }
+    }
+
+    // --- Inherited deposits: the rest of the push (#173) ---
+
+    // Anyone: pay an inherited deposit out to its heir's wallet, as far as the reserve can spare it right now
+    // (wstETH while the pot stays at target, then OCT from the inventory), with the heir's earned fees; what
+    // cannot be paid yet waits for the next press. The caller earns PAYOUT_CUT_BPS of the payout, capped.
+    function finishPayout(address _heir) external override returns (uint collOut, uint octOut, uint left) {
+        uint due = LiquityMath._min(inheritedOf[_heir], depositOf[_heir]);
+        require(due > 0, "RedemptionBuffer: nothing inherited to pay out");
+        _checkpoint(_heir);
+        _checkpointFees(_heir);
+        (uint collPart, uint octPart, uint paid) = _payoutParts(due);
+        require(paid > 0, "RedemptionBuffer: the reserve cannot spare it yet");
+        depositOf[_heir] = depositOf[_heir].sub(paid);
+        totalDeposits = totalDeposits.sub(paid);
+        left = due.sub(paid);
+        _setInherited(_heir, left);
+        collOut = collPart.add(_takeFees(_heir));
+        octOut = octPart;
+        _payWithCut(_heir, collOut, octOut, left);
+    }
+
+    function _payWithCut(address _heir, uint _collOut, uint _octOut, uint _left) internal {
+        uint cutColl = LiquityMath._min(_collOut.mul(PAYOUT_CUT_BPS).div(BPS), PAYOUT_CUT_CAP);
+        uint cutOct = LiquityMath._min(_octOut.mul(PAYOUT_CUT_BPS).div(BPS), PAYOUT_CUT_CAP_OCT);
+        if (_collOut > cutColl) { require(collateralToken.transfer(_heir, _collOut.sub(cutColl)), "RedemptionBuffer: collateral transfer failed"); }
+        if (cutColl > 0) { require(collateralToken.transfer(msg.sender, cutColl), "RedemptionBuffer: collateral transfer failed"); }
+        if (_octOut > cutOct) { require(octToken.transfer(_heir, _octOut.sub(cutOct)), "RedemptionBuffer: OCT transfer failed"); }
+        if (cutOct > 0) { require(octToken.transfer(msg.sender, cutOct), "RedemptionBuffer: OCT transfer failed"); }
+        emit InheritedPaidOut(_heir, msg.sender, _collOut, _octOut, _left, cutColl, cutOct);
+    }
+
+    // What finishPayout would pay right now at _price: zero while the reserve can spare nothing
+    function payoutQuote(address _heir, uint _price) external view override returns (uint collOut, uint octOut) {
+        uint due = LiquityMath._min(inheritedOf[_heir], depositOf[_heir]);
+        if (due == 0) { return (0, 0); }
+        uint paid;
+        (collOut, octOut, paid) = _payoutPartsAt(due, _price);
+        if (paid == 0) { return (0, 0); }
+        collOut = collOut.add(feesOf(_heir));
+    }
+
+    function payoutQueueLength() external view override returns (uint) { return payoutQueue.length; }
+    function payoutQueueAt(uint _i) external view override returns (address) { return payoutQueue[_i]; }
+
+    function _trimInherited(address _who) internal {
+        if (inheritedOf[_who] > depositOf[_who]) { _setInherited(_who, depositOf[_who]); }
+    }
+
+    function _setInherited(address _heir, uint _amount) internal {
+        inheritedOf[_heir] = _amount;
+        uint pos = queuePos[_heir];
+        if (_amount > 0 && pos == 0) {
+            payoutQueue.push(_heir);
+            queuePos[_heir] = payoutQueue.length;
+        } else if (_amount == 0 && pos > 0) {
+            address last = payoutQueue[payoutQueue.length - 1];
+            payoutQueue[pos - 1] = last;
+            queuePos[last] = pos;
+            payoutQueue.pop();
+            queuePos[_heir] = 0;
+        }
     }
 
     // SuccessionRegistry only (#171): part of a dead depositor's deposit becomes the heir's deposit, with the
@@ -365,6 +451,8 @@ contract RedemptionBuffer is BaseMath, Ownable, CheckContract, IRedemptionBuffer
         points[_owner] = points[_owner].sub(pointsPart);
         points[_heir] = points[_heir].add(pointsPart);
         if (lockedUntil[_owner] > lockedUntil[_heir]) { lockedUntil[_heir] = lockedUntil[_owner]; }
+        _setInherited(_heir, inheritedOf[_heir].add(_collAmount));
+        _trimInherited(_owner);
         emit DepositInherited(_owner, _heir, _collAmount, feesPart);
     }
 

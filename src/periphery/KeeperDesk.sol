@@ -12,7 +12,8 @@ pragma solidity 0.8.28;
 * its heirs through the liquidity desk, so one press moves everything; skim the staking yield of the vaults passed in whose auto-repay
 * is due (the protocol pays 1% of the OCT, capped at 5 OCT); and, when `tend` is set, the reserve's
 * housekeeping: release the surplus if one is due, split whatever the surplus sink holds, let the POL keeper
-* work and harvest its fees (the splitter pays the caller 0.1% of what it splits); then sweep the OCT and collateral this contract
+* work and harvest its fees (the splitter pays the caller 0.1% of what it splits) and finish the payout of
+* inherited reserve deposits the reserve can now spare (the reserve pays the caller 0.1% of each payout); then sweep the OCT and collateral this contract
 * received to the caller. The caller chooses the categories, so a frequent job such as a liquidation pays only
 * for itself (LS_06 #169). Steps that have nothing to do are skipped, never reverted, so a run always finishes.
 * `pending()` is the matching read: it scans the riskiest vaults and reports what a run would do, roughly
@@ -45,6 +46,8 @@ interface IDeskPriceFeed { function peek() external view returns (uint price, bo
 interface IDeskBuffer {
     function releaseSurplus() external returns (uint); function inventory() external view returns (uint); function OFFER_PREMIUM() external view returns (uint);
     function surplusSink() external view returns (address); function releasable(uint price) external view returns (uint); function lastRelease() external view returns (uint);
+    function finishPayout(address heir) external returns (uint, uint, uint); function payoutQuote(address heir, uint price) external view returns (uint, uint);
+    function payoutQueueLength() external view returns (uint); function payoutQueueAt(uint i) external view returns (address);
 }
 interface IDeskSplitter { function split() external returns (uint, uint); function polKeeper() external view returns (address); function pending() external view returns (uint); }
 interface IDeskPol { function work() external returns (uint); function harvest() external returns (uint); function octAtOrAbovePar() external view returns (bool); }
@@ -67,6 +70,8 @@ contract KeeperDesk {
     IDeskERC20 public immutable octToken;
     IDeskERC20 public immutable collateralToken;
     address public immutable liquidityDesk;         // zero on a chain without the market pool
+
+    uint public constant PAYOUTS_PER_RUN = 10;      // inherited deposits finished per run, at most
 
     event Run(address indexed caller, uint liquidated, uint executed, uint skimmed, uint surplusReleased, uint octPaid, uint collPaid);
 
@@ -120,6 +125,7 @@ contract KeeperDesk {
     // The reserve side: release a due surplus, split it, let the POL keeper work and harvest its fees
     // (periphery contracts, any of which may be absent on a chain).
     function _tend_() internal returns (uint released) {
+        _finishPayouts();
         try redemptionBuffer.releaseSurplus() returns (uint amount) { released = amount; } catch {}
         address sink = redemptionBuffer.surplusSink();
         if (sink.code.length > 0) {
@@ -133,8 +139,22 @@ contract KeeperDesk {
         }
     }
 
+    // Inherited reserve deposits waiting for the reserve to spare them: pay out what it can now. A finished
+    // heir leaves the queue (the last one takes its slot), so the index only moves on a failure.
+    function _finishPayouts() internal {
+        uint n = redemptionBuffer.payoutQueueLength();
+        uint i; uint tries;
+        while (i < n && tries < PAYOUTS_PER_RUN) {
+            tries++;
+            try redemptionBuffer.finishPayout(redemptionBuffer.payoutQueueAt(i)) {} catch {}
+            uint m = redemptionBuffer.payoutQueueLength();
+            if (m == n) { i++; }        // still queued (nothing to spare yet, or paid in part): move on
+            n = m;                      // otherwise the last heir now sits at i
+        }
+    }
+
     struct Rewards { uint threshold; uint gasComp; uint divisor; uint rewardBps; uint rewardCap; uint rate; uint ratePerYear; uint premium; uint inventory; uint cutBps; uint cutCap; }
-    struct Pending { uint price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint octReward; uint collReward; bool tend; }
+    struct Pending { uint price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint octReward; uint collReward; bool tend; uint payouts; }
 
     struct Scan { address owner; address[] liq; address[] exe; address[] skm; uint nl; uint ne; uint ns; }
 
@@ -166,13 +186,23 @@ contract KeeperDesk {
             s.owner = sortedTroves.getPrev(s.owner);
         }
 
-        w.tend = _tendPending(w.price);
+        w.payouts = _payoutsPending(w.price);
+        w.tend = w.payouts > 0 || _tendPending(w.price);
         w.liquidatable = new address[](s.nl);
         w.executable = new address[](s.ne);
         w.skimmable = new address[](s.ns);
         for (uint i = 0; i < s.nl; i++) w.liquidatable[i] = s.liq[i];
         for (uint i = 0; i < s.ne; i++) w.executable[i] = s.exe[i];
         for (uint i = 0; i < s.ns; i++) w.skimmable[i] = s.skm[i];
+    }
+
+    // Inherited deposits the reserve could pay out right now (the first PAYOUTS_PER_RUN of the queue)
+    function _payoutsPending(uint _price) internal view returns (uint count) {
+        uint n = redemptionBuffer.payoutQueueLength();
+        if (n > PAYOUTS_PER_RUN) n = PAYOUTS_PER_RUN;
+        for (uint i = 0; i < n; i++) {
+            try redemptionBuffer.payoutQuote(redemptionBuffer.payoutQueueAt(i), _price) returns (uint c, uint o) { if (c > 0 || o > 0) count++; } catch {}
+        }
     }
 
     // Something for the reserve side to do: a due surplus, an unsplit sink, or a POL keeper with wstETH at par

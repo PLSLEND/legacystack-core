@@ -38,7 +38,7 @@ interface IDeployDP { function setAddresses(address,address,address) external; }
 interface IDeployCSP { function setAddresses(address,address,address,address) external; }
 interface IDeploySorted { function setParams(uint,address,address) external; }
 interface IDeployHint { function setAddresses(address,address) external; }
-interface IDeployBuffer { function setAddresses(address,address,address,address,address,address,address) external; }
+interface IDeployBuffer { function setAddresses(address,address,address,address,address,address,address,address) external; }
 interface IDeployRegistry { function setAddresses(address,address,address,address,address,address,address) external; }
 interface IDeployAgg { function setDecimals(uint8) external; function setPrice(int) external; function setPrevPrice(int) external; function setUpdateTime(uint) external; function setPrevUpdateTime(uint) external; function setLatestRoundId(uint80) external; function setPrevRoundId(uint80) external; }
 interface IDeployWst { function mint(address,uint) external; function approve(address,uint) external returns (bool); function transfer(address,uint) external returns (bool); }
@@ -123,7 +123,7 @@ contract Deploy is Script {
         IDeployDP(a.dp).setAddresses(a.tm, a.ap, a.wst);
         IDeployCSP(a.csp).setAddresses(a.bo, a.tm, a.ap, a.wst);
         IDeployHint(a.hh).setAddresses(a.st, a.tm);
-        IDeployBuffer(a.buffer).setAddresses(a.tm, a.bo, a.feed, a.oct, a.wst, a.splitter, a.registry);
+        IDeployBuffer(a.buffer).setAddresses(a.tm, a.bo, a.feed, a.oct, a.wst, a.splitter, a.registry, a.gas);
         IDeployRegistry(a.registry).setAddresses(a.bo, a.tm, a.sp, a.csp, a.oct, a.wst, a.buffer);
         // Liquidity through the protocol (#171): OCT/USDe positions held for their owners, inherited with the plan
         if (a.pool != address(0)) {

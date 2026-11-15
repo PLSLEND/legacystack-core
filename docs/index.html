@@ -50,13 +50,14 @@
   <div class="hero-shade" aria-hidden="true"></div>
   <div class="hero-bandshade" aria-hidden="true"></div>
   <div class="hero-bandcover" aria-hidden="true"></div>
-  <div class="hero-ray" aria-hidden="true"></div>
   <div class="hero-floor" aria-hidden="true"></div>
   <div class="hero-lion-wrap">
     <div class="hero-aura" aria-hidden="true"></div>
-    <img src="assets/hero-lion.svg" alt="The LegacyStack winged lion" class="hero-lion" width="584" height="515" fetchpriority="high">
     <div class="hero-reflection" aria-hidden="true"><img src="assets/hero-lion.svg" alt=""></div>
+    <img src="assets/hero-lion.svg" alt="The LegacyStack winged lion" class="hero-lion" width="558" height="490" fetchpriority="high">
   </div>
+  <div class="hero-haze" aria-hidden="true"></div>
+  <div class="hero-ray" aria-hidden="true"></div>
   <div class="hero-copy">
     <div class="wordmark">LegacyStack</div>
     <div class="tagline tagline-wide">Digital Wealth, Credit &amp; Inheritance</div>
@@ -397,7 +398,7 @@
   <div class="section-head">
     <span class="eyebrow">Succession <em class="tag">testnet</em></span>
     <h2>Your succession plan</h2>
-    <p>One plan per wallet. It covers the vault, your Stability Pool deposit, your reserve deposit, the liquidity you provide through the protocol, and any collateral left behind by a redemption. At settlement all of it is paid out as tokens straight into the heirs' wallets, by their shares; no position is left for them to operate. A reserve deposit is paid in wstETH while the reserve can spare it and in OCT from its inventory after that; only what cannot be paid out yet stays a deposit in the heirs' names. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you. Heirs are addresses: one of them can be a second wallet of your own, so the plan also covers lost keys.</p>
+    <p>One plan per wallet. It covers the vault, your Stability Pool deposit, your reserve deposit, the liquidity you provide through the protocol, and any collateral left behind by a redemption. At settlement all of it is paid out as tokens straight into the heirs' wallets, by their shares; no position is left for them to operate. A reserve deposit is paid in wstETH while the reserve can spare it and in OCT from its inventory after that; what cannot be paid out yet waits in the heirs' names and leaves for their wallets with the next housekeeping press that finds the reserve able to spare it. Nobody has to come back for it. Shares are in percent and must add up to 100. The only proof of life is the button below: press it at least once a year. Using the vault does not count, and nobody can press it for you. Heirs are addresses: one of them can be a second wallet of your own, so the plan also covers lost keys.</p>
   </div>
   <figure class="flow flow-sm" aria-label="Pass it on: one press a year resets the clock; after a year of silence and thirty days of grace the estate goes to the heirs by their shares">
     <svg viewBox="0 0 480 230" xmlns="http://www.w3.org/2000/svg" role="img" class="flow-svg">
@@ -495,7 +496,7 @@
     </div>
     <div class="box">
       <h3>Keeper desk</h3>
-      <p class="small">The protocol has no staff. Whoever presses a button does that piece of housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, 1% of the OCT (at most 5) for every auto-repay that is due, 0.1% of the surplus it splits (at most 0.02 wstETH) for the reserve housekeeping. Settling an estate also hands its protocol liquidity to the heirs in the same press. Three buttons, three jobs, so the urgent one never pays for the others.</p>
+      <p class="small">The protocol has no staff. Whoever presses a button does that piece of housekeeping and keeps what the protocol pays for it: 200 OCT plus 0.5% of the collateral for every vault liquidated, up to 0.02 wstETH for every estate settled, 1% of the OCT (at most 5) for every auto-repay that is due, 0.1% of the surplus it splits (at most 0.02 wstETH) and 0.1% of every inherited deposit it pays out (at most 0.02 wstETH or 50 OCT) for the reserve housekeeping. Settling an estate also hands its protocol liquidity to the heirs in the same press. Three buttons, three jobs, so the urgent one never pays for the others.</p>
       <dl class="kv">
         <dt>Vaults to liquidate</dt><dd id="k-liq">—</dd>
         <dt>Estates to settle</dt><dd id="k-exe">—</dd>
@@ -607,12 +608,13 @@
   <div class="grid-2">
     <div class="box">
       <h3>Reserve deposit</h3>
-      <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. In return you earn what the reserve earns for serving the market, the redemption fees and the standing offer's premium: depositors receive their share of the pot and never less than half, set aside in wstETH and claimable at any time, plus STACK for every day served while the rewards contract holds any. The deposit and its unclaimed fees are part of your succession plan and are paid out to your heirs' wallets at settlement. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
+      <p class="small">Lend the reserve your wstETH and keep it. A deposit serves redemptions like the rest of the pot, stays yours, is locked for 180 days from your last deposit, and can be withdrawn afterwards whenever the reserve stays at its target without it. In return you earn what the reserve earns for serving the market, the redemption fees and the standing offer's premium: depositors receive their share of the pot and never less than half, set aside in wstETH and claimable at any time, plus STACK for every day served while the rewards contract holds any. The deposit and its unclaimed fees are part of your succession plan and are paid out to your heirs' wallets at settlement, or by the next housekeeping press once the reserve can spare them. What you risk is time, and holding OCT instead of wstETH if a redemption wave converts the pot before you leave.</p>
       <dl class="kv">
         <dt>Your reserve deposit</dt><dd id="rd-mine">—</dd>
         <dt>Unlocks</dt><dd id="rd-unlock">—</dd>
         <dt>Fees earned, to claim</dt><dd id="rd-fees">—</dd>
         <dt>Depositors' share of fees</dt><dd id="rd-share">—</dd>
+        <div class="hidden" id="rd-inherited-row" style="display:contents"><dt>Inherited deposit</dt><dd id="rd-inherited">—</dd></div>
         <dt>Time served</dt><dd id="rd-points">—</dd>
         <dt>STACK to claim</dt><dd id="rd-claim">—</dd>
       </dl>
@@ -622,6 +624,7 @@
           <button class="btn btn-gold" type="submit" id="btn-deposit">Deposit</button>
           <button class="btn btn-ghost" type="button" id="btn-withdraw">Withdraw</button>
           <button class="btn btn-ghost" type="button" id="btn-claim-fees">Claim fees</button>
+          <button class="btn btn-ghost" type="button" id="btn-payout" disabled>Pay out inherited</button>
           <button class="btn btn-ghost" type="button" id="btn-claim-stack">Claim STACK</button>
         </div>
       </form>

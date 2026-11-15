@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hold. Borrow. Pass it on. · The LegacyStack playbook</title>
+<meta name="description" content="The private-bank playbook on chain: hold an asset that can grow, borrow against it at a fixed 1.5% a year, put the liquidity to work, pass the whole structure on. What it is, how much to borrow, what can touch your vault, and the rules a careful user or an agent can adopt.">
+<meta name="theme-color" content="#020621">
+<link rel="canonical" href="https://plslend.github.io/legacystack-core/playbook.html">
+<link rel="icon" href="assets/lion.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"Article","headline":"Hold. Borrow. Pass it on. The LegacyStack playbook","description":"The private-bank playbook on chain: hold an asset that can grow, borrow against it at a fixed 1.5% a year, put the liquidity to work, pass the whole structure on.","about":{"@type":"SoftwareApplication","name":"LegacyStack","applicationCategory":"FinanceApplication","operatingSystem":"Ethereum","url":"https://plslend.github.io/legacystack-core/","license":"https://opensource.org/licenses/MIT"},"publisher":{"@type":"Organization","name":"LegacyStack","url":"https://plslend.github.io/legacystack-core/"},"inLanguage":"en"}
+</script>
+</head>
+<body class="doc">
+<div class="notice-bar">Test deployment on the Sepolia network. Unaudited code. Nothing here has value and nothing here is a promise about a future deployment.</div>
+
+<header class="site-header">
+  <a class="brand" href="index.html#top" aria-label="LegacyStack">
+    <img src="assets/lion.svg" alt="" class="brand-mark">
+    <span class="brand-text"><span class="brand-name">LegacyStack</span><span class="brand-sub">Digital Wealth, Credit &amp; Inheritance</span></span>
+  </a>
+  <nav class="nav" aria-label="Sections">
+    <a href="#why">Why</a>
+    <a href="#hold">Hold</a>
+    <a href="#borrow">Borrow</a>
+    <a href="#deploy">Deploy</a>
+    <a href="#layers">Layers</a>
+    <a href="#pass">Pass it on</a>
+    <a href="#rules">Rules</a>
+    <a href="#limits">Limits</a>
+  </nav>
+  <div class="wallet"><a class="btn btn-gold" href="index.html#app">Open the app</a></div>
+</header>
+
+<main class="prose">
+<section class="section doc-head" id="top">
+  <span class="eyebrow">The playbook</span>
+  <h1>Hold. Borrow. Pass it on.</h1>
+  <p class="lede">For a hundred years the people who got richer did one thing differently: they kept the asset that grows, borrowed against it when they needed money, put the loan to work, and handed the whole structure to the next generation. That playbook needed a private banker, a trust and a lot of money. Outside the United States it also needed products most countries never had: a fixed-rate loan with no maturity, a credit line against what you own, a structure that passes on without a court. This page is the playbook written for one instrument, with the numbers and the limits, so a careful person or the software acting for one can follow it.</p>
+</section>
+
+<section class="section" id="why">
+  <span class="eyebrow">Two games</span>
+  <h2>Income is linear. Assets compound.</h2>
+  <p>Most households play an income game: earn, pay tax, live on what is left, save a slice and hope it is enough. Income grows three or four percent a year. An asset base can grow faster, and it compounds. The second game is played from the balance sheet: own assets, grow their equity, and never sell them to pay for life. The money for life comes from borrowing against them, because borrowing keeps the asset and selling ends the compounding.</p>
+  <p>Two things make the second game safe for a family rather than reckless: the debt is long, fixed and modest, so a market cycle cannot force a sale, and there are layers of liquidity between the owner and the day he would have to sell. The protocol gives the first by construction. The second is a discipline, and the rules at the end of this page are that discipline written down.</p>
+</section>
+
+<section class="section" id="hold">
+  <span class="eyebrow">01 · Hold</span>
+  <h2>What you hold</h2>
+  <p>The asset is wstETH: ether staked with Lido, wrapped so that its staking rewards accrue inside the token. It is an asset that can grow, and it earns on its own: the rewards Ethereum pays the validators who run the network, from transaction fees and new issuance. Since 2022 that yield has been between about 2% and 5% a year; it is set by the network and it varies. In the vault, the wstETH keeps earning whether you borrow or not. Nothing in the protocol lends your collateral out, touches it or moves it, except the three rules described under <a href="#layers">layers</a>.</p>
+  <p class="footnote">What you take on by holding it: the price of ether, and Lido. Lido's contracts are upgradeable by its DAO and its validators can be slashed; the protocol's oracle watches Lido's rate and pauses new borrowing if it moves outside a narrow band.</p>
+</section>
+
+<section class="section" id="borrow">
+  <span class="eyebrow">02 · Borrow</span>
+  <h2>What you borrow, and how much</h2>
+  <p>You draw OCT, the protocol's loan unit, against your wstETH at a fixed 1.5% a year, with no maturity, no instalments and no application. OCT is minted when you borrow and burned when you repay; it is redeemable for a dollar's worth of wstETH less the redemption fee, so it holds its value by arbitrage rather than by promise. The protocol enforces one rule: the vault's collateral must stay worth at least 110% of its debt. Under that line the vault is liquidated. There is no margin call and no cure period, so the line is yours to stay far away from.</p>
+  <div class="grid-2">
+    <div class="box">
+      <h3>How much is prudent</h3>
+      <p class="small">The app's Max button stops at 150%. For a position meant to last years, 200% or more is the sensible policy: it survives the kind of fall ether has had every few years, and it leaves room to borrow again later. At 250% you have used less than half of what the protocol would allow, and that is the point.</p>
+    </div>
+    <div class="box">
+      <h3>A worked example</h3>
+      <p class="small">10 wstETH at $2,500 is $25,000 of collateral. At a 250% ratio you borrow 10,000 OCT; the vault is liquidated only if wstETH falls to $1,100, a fall of 56%. At 200% you borrow 12,500 OCT and the line sits at $1,375, a fall of 45%. Interest on 10,000 OCT is 150 OCT a year.</p>
+    </div>
+  </div>
+  <p class="footnote">Borrowing costs a one-time mint fee of 0.5% (more when redemptions are heavy) plus the 1.5% a year. The minimum debt is 1,800 OCT. The 200 OCT the protocol parks per vault as liquidation compensation comes back when you close.</p>
+</section>
+
+<section class="section" id="deploy">
+  <span class="eyebrow">03 · Deploy</span>
+  <h2>Where the liquidity goes</h2>
+  <p>The OCT you drew is yours. Inside the protocol it can do three things. It can sit in the Stability Pool, which absorbs liquidations and settlements and is paid in wstETH with a bonus for the first and a 2% premium for the second. It can provide OCT/USDe liquidity through the protocol's liquidity desk and earn the trading fee on every swap. Or it can buy more wstETH for the vault, which raises the ratio and the base that earns. Every position inside the protocol is covered by your succession plan and is paid out to your heirs with the rest.</p>
+  <p>Or you take it out. It is a token in your wallet like any other; use it wherever you judge best, further down the risk curve if you like. The vault does not care where it goes, it only watches the ratio. One thing to weigh: what leaves the protocol leaves the plan.</p>
+  <h3>What repays it</h3>
+  <p>Nothing has to. Interest accrues into the debt at 1.5% a year and you repay when you choose, in part, in full, or never while the ratio holds. If you want the loan to shrink on its own, switch on auto-repay: once a month, quarter or year the vault's staking yield is sold to the reserve at par and the OCT repays the debt; only the yield is ever sold, never the wstETH you deposited. In the example above, 10 wstETH at a 3% yield earn about 0.3 wstETH a year, $750 at that price, against 150 OCT of interest. The yield covers the interest five times over; what is left pays the principal down if you let it.</p>
+</section>
+
+<section class="section" id="layers">
+  <span class="eyebrow">Discipline</span>
+  <h2>The layers between you and a forced sale</h2>
+  <p>Volatility was never the problem; being a forced seller at the bottom was. The treasuries that survive keep four layers of liquidity and only ever spend the next one. In protocol terms they are these.</p>
+  <div class="grid-2">
+    <div class="box"><h3>1 · Income</h3><p class="small">Your salary, your business, your rents. It pays for life and for any repayment you choose to make. If this covers you, nothing below is touched.</p></div>
+    <div class="box"><h3>2 · Cash-like</h3><p class="small">OCT you hold, or OCT in the Stability Pool, which you can withdraw at any time outside a liquidation. It is the layer you spend from in a bad year instead of selling the asset.</p></div>
+    <div class="box"><h3>3 · Collateral liquidity</h3><p class="small">The borrowing room you have not used. A vault at 250% can draw more OCT without a sale, at the same 1.5%, in one transaction, in any market.</p></div>
+    <div class="box"><h3>4 · The asset</h3><p class="small">The wstETH itself. The layer you never want to reach. Adding to it in a fall is the move that protects everything above it, and anyone, your spouse or your agent, may add collateral to your vault from their own wallet.</p></div>
+  </div>
+  <h3>What can touch your vault</h3>
+  <p>Three things, all public rules. Liquidation under 110%. Redemption: when OCT trades below a dollar, anyone may redeem OCT for wstETH at par less a fee; the reserve serves redemptions first, and only when it is empty are the vaults with the lowest ratios redeemed against, their debt and collateral shrinking by the same value, so no equity is lost but a vault can be partly closed without its owner's action. And settlement, which is your own plan executing, below. A high ratio keeps you out of the first two.</p>
+</section>
+
+<section class="section" id="pass">
+  <span class="eyebrow">04 · Pass it on</span>
+  <h2>The structure outlives you</h2>
+  <p>Name up to ten heirs and their shares in percent, and a fallback. Once a year press one button: that is your proof of life, and nothing else counts, so using the vault does not keep it alive and a bot cannot accidentally keep it alive either. After one year of silence and thirty days of grace, anyone may trigger the settlement: the vault's debt is paid from the estate's own OCT, then from the reserve at its offer price, then by the Stability Pool at 2% over par, and what remains goes directly into your heirs' wallets. The same press pays out your Stability Pool deposit, your reserve deposit and the liquidity you provided through the protocol. Nothing is left as a position: your heirs receive tokens in their own wallets and need to know nothing about any of this. Built for the case where you understand this and the people you leave it to do not.</p>
+  <p class="footnote">Heirs are addresses. Check them twice; after settlement nothing can be corrected. One of them can be a second wallet of your own, which makes the plan a recovery for lost keys as well. A reserve deposit is paid in wstETH while the reserve can spare it and in OCT from its inventory after that; what cannot be paid out yet leaves for the heirs' wallets with the next housekeeping press that finds the reserve able to spare it.</p>
+</section>
+
+<section class="section" id="rules">
+  <span class="eyebrow">The doctrine</span>
+  <h2>Rules you can hand to an agent</h2>
+  <p>Decide the rules before the market tests them. These are the ones a careful owner, or the software acting for one, can adopt as they stand. They are conservative on purpose.</p>
+  <div class="box">
+    <dl class="kv kv-doc">
+      <dt>Opening ratio</dt><dd>200% or higher for a position meant to last years; 150% is the app's ceiling, 110% is the protocol's line.</dd>
+      <dt>Adjusting</dt><dd>Never draw more OCT if the ratio would end under 150%. Check the ratio after every 10% move in ether. Add collateral before the ratio reaches 130%.</dd>
+      <dt>Repaying</dt><dd>From yield first (auto-repay), from income second, from the cash-like layer third. Never by selling the asset while any layer above it remains.</dd>
+      <dt>Liquidity</dt><dd>Keep at least one year of the loan's interest in OCT or in the Stability Pool. Treat unused borrowing room as a reserve, not as a budget.</dd>
+      <dt>Succession</dt><dd>Set the plan the day the vault opens. Put the proof-of-life date in the calendar with a reminder a month early. Keep inside the protocol what the heirs should receive.</dd>
+      <dt>Verification</dt><dd>Take contract addresses only from this site's deployment file. Quote and simulate every transaction. Keep the owner signing; software builds, people approve.</dd>
+    </dl>
+  </div>
+  <p class="footnote">For software: the machine-readable version of this page, with the invariants, the numbers and the risks in order, is at <a href="agent.md">agent.md</a> and <a href=".well-known/legacystack.json">.well-known/legacystack.json</a>.</p>
+</section>
+
+<section class="section" id="limits">
+  <span class="eyebrow">Honest limits</span>
+  <h2>What this is not</h2>
+  <p>It is software, published under the MIT licence, with no company behind the contracts and no support line. It is a test deployment of unaudited code; a mainnet deployment, if it comes, will be audited first and will say so. Immutable means a bug cannot be patched. The oracle can pause new borrowing and, after thirty days without any price source, put the deployment into a permanent wind-down in which repaying, adding collateral and closing still work. On Ethereum mainnet, gas makes small positions expensive; the minimum debt is 1,800 OCT. The frontend does not serve persons in the United States. Borrowing against an asset has a tax treatment that differs by country and by person; ask a professional where you live, this page makes no promise about it. And none of this is advice: it is the mechanism, the numbers and one set of rules, written down so you can decide.</p>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="footer-brand"><img src="assets/lion.svg" alt="" class="footer-mark"><span>LegacyStack</span></div>
+  <p>LegacyStack is software, not a bank, an insurer or an investment firm. This is a test deployment of unaudited code on the Sepolia test network. The code is published under the MIT licence at <a href="https://github.com/PLSLEND/legacystack-core" rel="noopener">github.com/PLSLEND/legacystack-core</a>; lineage Liquity V1 (MIT).</p>
+  <p><a href="index.html">The app</a> · <a href="agent.md">Brief for agents and integrators</a> · <a href="CHANGES_FROM_UPSTREAM.md">Audit map</a> · <a href="llms.txt">llms.txt</a></p>
+</footer>
+</body>
+</html>

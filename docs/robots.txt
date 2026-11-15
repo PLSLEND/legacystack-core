@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://plslend.github.io/legacystack-core/sitemap.xml

@@ -18,6 +18,7 @@ interface IPol {
     function totalOctCompounded() external view returns (uint); function protocolShare() external view returns (uint);
     function seed() external returns (uint); function seedOct() external view returns (uint);
     function polValue() external view returns (uint); function polTarget() external view returns (uint); function belowTarget() external view returns (bool);
+    function freeFloat() external view returns (uint); function seedOctPart() external view returns (uint);
 }
 interface ISwapCallback { function uniswapV3SwapCallback(int256, int256, bytes calldata) external; }
 
@@ -81,7 +82,7 @@ contract SinksTest is LegacyStackBase {
         usde = deployCode("src/testnet/MockUSDe.sol:MockUSDe");
         poolMock = new MockPool(oct, usde);
         npmMock = new MockNPM();
-        pol = deployCode("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(wst, oct, buffer, pf, address(poolMock), address(npmMock)));
+        pol = deployCode("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(wst, oct, buffer, pf, address(poolMock), address(npmMock), sp, address(0)));
         splitter = deployCode("src/periphery/SurplusSplitter.sol:SurplusSplitter", abi.encode(wst, auction, pol));
         rewards = deployCode("src/periphery/ReserveRewards.sol:ReserveRewards", abi.encode(stack, buffer, RATE));
         IStackT(stack).mint(buyer, 100_000e18);
@@ -120,9 +121,10 @@ contract SinksTest is LegacyStackBase {
     // --- splitter ---
 
     function test_splitterFeedsThePolFirstThenHalvesAndPaysTheCaller() public {
-        // the protocol owns no liquidity yet and ~100,700 OCT circulate: the target is ~10,070 OCT, the pool comes first
+        // the protocol owns no liquidity yet and ~100,000 OCT float freely: the target is 20% of that, the pool comes first
         assertTrue(IPol(pol).belowTarget());
-        assertEq(IPol(pol).polTarget(), IBuffer(buffer).circulatingSupply() / 10);
+        assertEq(IPol(pol).freeFloat(), IBuffer(buffer).circulatingSupply());
+        assertEq(IPol(pol).polTarget(), IBuffer(buffer).circulatingSupply() / 5);
         vm.prank(carol); IMockWst(wst).transfer(splitter, 2 ether);
         assertEq(ISplitter(splitter).pending(), 2 ether);
         vm.prank(carol); (uint a, uint b) = ISplitter(splitter).split();
@@ -134,9 +136,11 @@ contract SinksTest is LegacyStackBase {
         vm.expectRevert(bytes("SurplusSplitter: nothing to split"));
         ISplitter(splitter).split();
         // the protocol's liquidity reaches its target (here through the seed): half to the burn auction, half to the pool
-        vm.prank(bob); IERC20L(oct).transfer(pol, 5100e18);
-        IERC20T(usde).mint(pol, 5100e18);
+        vm.prank(bob); IERC20L(oct).transfer(pol, 12000e18);
+        IERC20T(usde).mint(pol, 12000e18);
         IPol(pol).seed();
+        assertEq(IPol(pol).seedOctPart(), 12000e18);
+        assertEq(IPol(pol).freeFloat(), IBuffer(buffer).circulatingSupply() - 12000e18, "the protocol's own OCT in the pool is parked");
         assertFalse(IPol(pol).belowTarget());
         vm.prank(carol); IMockWst(wst).transfer(splitter, 40 ether);
         vm.prank(dave); (a, b) = ISplitter(splitter).split();
@@ -223,7 +227,7 @@ contract SinksTest is LegacyStackBase {
         IPol(pol).work();                                              // one position: 500 OCT placed
         bool octIs0 = poolMock.token0() == oct;
         assertEq(IPol(pol).polValue(), 500e18);
-        assertTrue(IPol(pol).belowTarget(), "500 of a ~10,070 OCT target");
+        assertTrue(IPol(pol).belowTarget(), "500 of a ~20,000 OCT target");
         // the position earned 10 OCT and 20 USDe of fees
         IERC20T(usde).mint(address(npmMock), 20e18);
         vm.prank(bob); IERC20L(oct).transfer(address(npmMock), 10e18);
@@ -252,10 +256,10 @@ contract SinksTest is LegacyStackBase {
         assertEq(poolMock.lastZeroForOne(), !octIs0, "sells the counter token");
         assertEq(uint(poolMock.lastLimit()), octIs0 ? uint(79625275426524748796330556127) : uint(78833030112140176575862854578), "never more than 1% over par");
         // the protocol's liquidity reaches its target (here through the seed): the next fees feed the reserve instead
-        vm.prank(bob); IERC20L(oct).transfer(pol, 5100e18);
-        IERC20T(usde).mint(pol, 5100e18);
+        vm.prank(bob); IERC20L(oct).transfer(pol, 12000e18);
+        IERC20T(usde).mint(pol, 12000e18);
         IPol(pol).seed();
-        assertEq(IPol(pol).polValue(), 10730e18);
+        assertEq(IPol(pol).polValue(), 24530e18);
         assertFalse(IPol(pol).belowTarget());
         vm.prank(bob); IERC20L(oct).transfer(address(npmMock), 10e18);
         npmMock.setFees(poolMock.token0(), poolMock.token1(), octIs0 ? 10e18 : 0, octIs0 ? 0 : 10e18);
@@ -268,12 +272,22 @@ contract SinksTest is LegacyStackBase {
         assertEq(IPol(pol).harvest(), 0);
         // more OCT in circulation lifts the target above the protocol's liquidity: fees compound again
         _open(carol, 100 ether, 50000e18);
-        assertTrue(IPol(pol).belowTarget(), "the target follows the circulating OCT");
+        assertTrue(IPol(pol).belowTarget(), "the target follows the free float");
         vm.prank(bob); IERC20L(oct).transfer(address(npmMock), 10e18);
         npmMock.setFees(poolMock.token0(), poolMock.token1(), octIs0 ? 10e18 : 0, octIs0 ? 0 : 10e18);
         assertEq(IPol(pol).harvest(), 0);
         assertEq(IPol(pol).positionCount(), 5);
         assertEq(IPol(pol).totalOctCompounded(), 40e18);
+        // OCT parked in the Stability Pool is not free float: a big deposit brings the target back under the POL
+        uint floatBefore = IPol(pol).freeFloat();
+        vm.prank(bob); ISP(sp).provideToSP(60000e18);
+        assertEq(IPol(pol).freeFloat(), floatBefore - 60000e18);
+        assertFalse(IPol(pol).belowTarget(), "the pool's deposits are parked, not free");
+        vm.prank(bob); IERC20L(oct).transfer(address(npmMock), 10e18);
+        npmMock.setFees(poolMock.token0(), poolMock.token1(), octIs0 ? 10e18 : 0, octIs0 ? 0 : 10e18);
+        assertEq(IPol(pol).harvest(), 10e18, "to the reserve again");
+        vm.prank(bob); ISP(sp).withdrawFromSP(59999e18);                // the pool keeps its 1 OCT minimum
+        assertTrue(IPol(pol).belowTarget(), "and back: a lever that moves nothing out of the protocol");
     }
 
     function test_polSeedIsPlacedTwoSidedHeldForeverAndCountedAsTheProtocols() public {

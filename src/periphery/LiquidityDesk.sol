@@ -60,6 +60,8 @@ contract LiquidityDesk {
     mapping(address => mapping(address => uint)) public escrowOf; // heir => token => amount
     uint public totalOctProvided;
     uint public totalCounterProvided;
+    mapping(address => uint) public octOf;                        // OCT principal an owner has in the position
+    uint public octInPositions;                                   // OCT principal in all open positions (a measure for the POL target)
 
     event Provided(address indexed owner, uint tokenId, uint oct, uint counter, uint128 liquidity);
     event Collected(address indexed owner, uint oct, uint counter);
@@ -130,6 +132,8 @@ contract LiquidityDesk {
         if (_counterAmount > counterUsed) require(counterToken.transfer(msg.sender, _counterAmount - counterUsed), "LiquidityDesk: refund failed");
         totalOctProvided += octUsed;
         totalCounterProvided += counterUsed;
+        octOf[msg.sender] += octUsed;
+        octInPositions += octUsed;
         emit Provided(msg.sender, tokenId, octUsed, counterUsed, liquidity);
     }
 
@@ -146,7 +150,9 @@ contract LiquidityDesk {
         uint tokenId = positionOf[msg.sender];
         require(tokenId != 0, "LiquidityDesk: no position");
         bool closed;
+        (,,,,,,, uint128 held,,,,) = positionManager.positions(tokenId);
         (oct, counter, closed) = _unwind(tokenId, _liquidity, msg.sender);
+        _release(msg.sender, closed ? octOf[msg.sender] : held == 0 ? 0 : octOf[msg.sender] * (_liquidity > held ? held : _liquidity) / held);
         if (closed) delete positionOf[msg.sender];
         emit Withdrawn(msg.sender, oct, counter, closed);
     }
@@ -159,6 +165,7 @@ contract LiquidityDesk {
         uint tokenId = positionOf[_owner];
         require(tokenId != 0, "LiquidityDesk: no position");
         delete positionOf[_owner];
+        _release(_owner, octOf[_owner]);
         (uint oct, uint counter,) = _unwind(tokenId, 0, address(this));
         (address[] memory heirs, uint16[] memory bps) = registry.getHeirs(_owner);
         address fallbackHeir = registry.getFallbackHeir(_owner);
@@ -203,6 +210,12 @@ contract LiquidityDesk {
         (oct, counter) = _collect(_tokenId, _to);
         closed = part == held;
         if (closed) positionManager.burn(_tokenId);
+    }
+
+    function _release(address _owner, uint _oct) internal {
+        if (_oct > octOf[_owner]) _oct = octOf[_owner];
+        octOf[_owner] -= _oct;
+        octInPositions -= _oct;
     }
 
     function _push(address _heir, address _fallbackHeir, address _token, uint _amount) internal {

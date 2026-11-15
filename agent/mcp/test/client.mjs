@@ -1,0 +1,17 @@
+// Smoke test: start the server over stdio, list the tools, call a few against the current deployment.
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+const transport = new StdioClientTransport({ command: 'node', args: ['src/server.js'], env: { ...process.env } });
+const client = new Client({ name: 'smoke', version: '0.0.1' });
+await client.connect(transport);
+const tools = await client.listTools();
+console.log('tools:', tools.tools.map((t) => t.name).join(', '));
+const show = async (name, args = {}) => { const r = await client.callTool({ name, arguments: args }); const t = r.content[0].text; console.log('\n== ' + name + ' ' + JSON.stringify(args) + '\n' + t.slice(0, 900)); };
+await show('protocol_overview');
+await show('protocol_state');
+await show('vault', { owner: '0x0D816b83c13217Ab6DCD48B00CB2250066279FC5' });
+await show('quote_open', { collateralWstETH: '10', targetRatioPercent: 250 });
+await show('keeper_pending', { maxScan: 20 });
+await show('build_tx', { action: 'set_plan', heirs: [{ address: '0x0D816b83c13217Ab6DCD48B00CB2250066279FC5', sharePercent: 70 }, { address: '0x000000000000000000000000000000000000dEaD', sharePercent: 30 }] });
+await show('build_tx', { action: 'open_vault', amount: '10', borrowOCT: '10000' });
+await client.close();

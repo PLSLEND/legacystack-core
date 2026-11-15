@@ -234,7 +234,7 @@ async function refreshSinks() {
   const notes = [];
   if (share !== null && target !== null) {
     const below = share < target;
-    notes.push(`protocol-owned liquidity ${fmt(share, 0)} OCT of a ${fmt(target, 0)} OCT target (10% of the circulating OCT): ${below ? 'fees compound into the pool and the whole surplus comes here' : 'fees go to the reserve and the surplus is split with the burn auction'}`);
+    notes.push(`protocol-owned liquidity ${fmt(share, 0)} OCT of a ${fmt(target, 0)} OCT target (20% of the free float, the OCT outside the Stability Pool and the protocol's liquidity): ${below ? 'fees compound into the pool and the whole surplus comes here' : 'fees go to the reserve and the surplus is split with the burn auction'}`);
   }
   if (compounded !== null && compounded > 0n) notes.push(`${fmt(compounded, 2)} OCT of fees compounded`);
   if (harvested !== null && harvested > 0n) notes.push(`${fmt(harvested, 2)} OCT of fees to the reserve`);

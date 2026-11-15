@@ -1,0 +1,15 @@
+{
+  "name": "legacystack-mcp",
+  "version": "0.1.0",
+  "description": "Read-only MCP server for the LegacyStack protocol: state, positions, plans, quotes and unsigned transaction builders. The owner signs; the server never holds keys.",
+  "type": "module",
+  "bin": { "legacystack-mcp": "src/server.js" },
+  "main": "src/server.js",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "viem": "^2.21.0",
+    "zod": "^3.23.8"
+  }
+}

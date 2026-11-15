@@ -114,6 +114,7 @@ export const polAbi = parseAbi([
   'function polValue() view returns (uint256)',
   'function polTarget() view returns (uint256)',
   'function belowTarget() view returns (bool)',
+  'function freeFloat() view returns (uint256)',
 ]);
 
 export const rewardsAbi = parseAbi([

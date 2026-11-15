@@ -109,8 +109,13 @@ contract Deploy is Script {
         // STACK sinks and emissions (periphery): burn auction, POL keeper, splitter, reserve rewards
         a.stack = _deploy("src/testnet/MockStack.sol:MockStack");
         a.auction = _deployArgs("src/periphery/BurnAuction.sol:BurnAuction", abi.encode(a.stack, a.wst, uint(0.5 ether), uint(1000e18)));
+        // Liquidity through the protocol (#171): OCT/USDe positions held for their owners, inherited with the plan;
+        // deployed before the POL keeper, which counts the OCT held there as parked (#174)
+        if (a.pool != address(0)) {
+            a.lpDesk = _deployArgs("src/periphery/LiquidityDesk.sol:LiquidityDesk", abi.encode(a.oct, a.pool, npm, a.registry));
+        }
         a.pol = a.pool != address(0)
-            ? _deployArgs("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(a.wst, a.oct, a.buffer, a.feed, a.pool, npm))
+            ? _deployArgs("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(a.wst, a.oct, a.buffer, a.feed, a.pool, npm, a.sp, a.lpDesk))
             : a.auction;
         a.splitter = _deployArgs("src/periphery/SurplusSplitter.sol:SurplusSplitter", abi.encode(a.wst, a.auction, a.pol));
         a.rewards = _deployArgs("src/periphery/ReserveRewards.sol:ReserveRewards", abi.encode(a.stack, a.buffer, uint(1e18) / uint(1 days))); // 1 STACK per wstETH per day
@@ -125,10 +130,6 @@ contract Deploy is Script {
         IDeployHint(a.hh).setAddresses(a.st, a.tm);
         IDeployBuffer(a.buffer).setAddresses(a.tm, a.bo, a.feed, a.oct, a.wst, a.splitter, a.registry, a.gas);
         IDeployRegistry(a.registry).setAddresses(a.bo, a.tm, a.sp, a.csp, a.oct, a.wst, a.buffer);
-        // Liquidity through the protocol (#171): OCT/USDe positions held for their owners, inherited with the plan
-        if (a.pool != address(0)) {
-            a.lpDesk = _deployArgs("src/periphery/LiquidityDesk.sol:LiquidityDesk", abi.encode(a.oct, a.pool, npm, a.registry));
-        }
         a.desk = _deployArgs("src/periphery/KeeperDesk.sol:KeeperDesk", abi.encode(a.tm, a.bo, a.st, a.feed, a.buffer, a.registry, a.oct, a.wst, a.lpDesk));
 
         // Seed: a deployer vault (its OCT seeds the pool below) and 1 OCT in the Stability Pool (the pool's

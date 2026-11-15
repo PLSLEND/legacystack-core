@@ -15,8 +15,9 @@ pragma solidity 0.8.28;
 * Fees (#169, #170, #172): `harvest()` collects what the positions earned. Fees in the counter-asset are turned
 * into OCT inside the pool, only while OCT trades at or below par and never above 1% over it (a bid that can
 * only help the peg); otherwise they wait here. The OCT then goes one of two ways, by a rule and never by a
-* key: while the protocol-owned liquidity is BELOW ITS TARGET (POL_TARGET_BPS of the circulating OCT; the seed
-* plus everything the keeper placed, counted in OCT), the fees COMPOUND into a new position, deepening the
+* key: while the protocol-owned liquidity is BELOW ITS TARGET (POL_TARGET_BPS of the FREE FLOAT: the OCT in
+* circulation minus what is parked in the Stability Pool and in the protocol's liquidity positions; the POL is
+* the seed plus everything the keeper placed, counted in OCT), the fees COMPOUND into a new position, deepening the
 * liquidity that holds the peg; once the target is reached, the fees go to the reserve's inventory and feed
 * the reserve, the waterfall and the rest. The same target tells the splitter how much of the reserve's
 * surplus to send here (all of it below target, half above). Fees can only ever sit in the pool or in the
@@ -40,6 +41,8 @@ interface IPolBuffer {
     function fill(uint collAmount) external;
 }
 interface IPolPriceFeed { function fetchPrice() external returns (uint); }
+interface IPolStabilityPool { function getTotalLUSDDeposits() external view returns (uint); }
+interface IPolLiquidityDesk { function octInPositions() external view returns (uint); }
 interface IPolPool {
     function slot0() external view returns (uint160 sqrtPriceX96, int24 tick, uint16, uint16, uint16, uint8, bool);
     function observe(uint32[] calldata secondsAgos) external view returns (int56[] memory tickCumulatives, uint160[] memory);
@@ -67,16 +70,19 @@ contract PolKeeperV3 {
     IPolNPM public immutable positionManager;
     bool public immutable octIsToken0;
     address public immutable deployer;              // may call seed() once; nothing else
+    IPolStabilityPool public immutable stabilityPool;
+    address public immutable liquidityDesk;         // zero when the chain has none
     uint32 public constant TWAP_WINDOW = 1 hours;
     int24 public constant RANGE_TICKS = 100;        // the one-sided band: ~1% wide, just beside the price
     int24 public constant SEED_TICKS = 200;         // the seed band: 0.98 to 1.02 around par
     uint public constant RETRY_WINDOW = 90 days;    // a venue that fails this long gives the wstETH back to the reserve
-    uint public constant POL_TARGET_BPS = 1000;     // the protocol's own liquidity aims at 10% of the circulating OCT
+    uint public constant POL_TARGET_BPS = 2000;     // the protocol's own liquidity aims at 20% of the free float (#174)
     // sqrt prices at ticks +100 and -100: the harvest never buys OCT more than 1% over par
     uint160 internal constant SQRT_TICK_PLUS_100 = 79625275426524748796330556127;
     uint160 internal constant SQRT_TICK_MINUS_100 = 78833030112140176575862854578;
 
     uint public seedOct;                            // the opening liquidity placed through seed(): OCT plus counter-asset, ~$1 each
+    uint public seedOctPart;                        // the OCT half of the seed
     uint public totalOctDeposited;
     uint public totalCollConverted;
     uint public totalCollReturned;                  // wstETH returned to the reserve after a dead spell
@@ -92,7 +98,9 @@ contract PolKeeperV3 {
     event ReturnedToReserve(uint collAmount);
     event Harvested(uint octCollected, uint counterCollected, uint counterSold, uint octBought, uint octToReserve, uint octCompounded);
 
-    constructor(address _collateralToken, address _octToken, address _reserve, address _priceFeed, address _pool, address _positionManager) {
+    constructor(address _collateralToken, address _octToken, address _reserve, address _priceFeed, address _pool, address _positionManager, address _stabilityPool, address _liquidityDesk) {
+        stabilityPool = IPolStabilityPool(_stabilityPool);
+        liquidityDesk = _liquidityDesk;
         collateralToken = IPolERC20(_collateralToken);
         octToken = IPolERC20(_octToken);
         reserve = IPolBuffer(_reserve);
@@ -126,6 +134,7 @@ contract PolKeeperV3 {
         }));
         positions.push(tokenId);
         seedOct = a0 + a1;
+        seedOctPart = octIsToken0 ? a0 : a1;
         emit Seeded(tokenId, octIsToken0 ? a0 : a1, octIsToken0 ? a1 : a0);
     }
 
@@ -177,9 +186,21 @@ contract PolKeeperV3 {
         return seedOct + totalOctDeposited;
     }
 
-    /// Where the protocol's own liquidity should stand: POL_TARGET_BPS of the circulating OCT
+    /// OCT that could reach the market: everything in circulation (minted minus what the protocol holds) minus
+    /// what sits parked inside the protocol: the Stability Pool's deposits, the protocol's own OCT in the pool and
+    /// the OCT in positions provided through the liquidity desk. Internal counters only (#174).
+    function freeFloat() public view returns (uint) {
+        uint parked = stabilityPool.getTotalLUSDDeposits() + seedOctPart + totalOctDeposited;
+        if (liquidityDesk != address(0)) {
+            try IPolLiquidityDesk(liquidityDesk).octInPositions() returns (uint inDesk) { parked += inDesk; } catch {}
+        }
+        uint circulating = reserve.circulatingSupply();
+        return circulating > parked ? circulating - parked : 0;
+    }
+
+    /// Where the protocol's own liquidity should stand: POL_TARGET_BPS of the free float
     function polTarget() public view returns (uint) {
-        return reserve.circulatingSupply() * POL_TARGET_BPS / 10000;
+        return freeFloat() * POL_TARGET_BPS / 10000;
     }
 
     function belowTarget() public view returns (bool) {

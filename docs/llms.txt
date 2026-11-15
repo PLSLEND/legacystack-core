@@ -1,0 +1,18 @@
+# LegacyStack
+
+> LegacyStack is an immutable borrowing protocol on Ethereum: a fixed 1.5% a year credit line against staked ether (wstETH), with succession built into the vault. No admin keys, no governance over positions, no middleman. OCT is its loan unit, never a stablecoin.
+
+Status: test deployment on the Sepolia test network, unaudited code; nothing here has value. The frontend does not serve persons in the United States.
+
+## Read first
+
+- [Protocol brief for agents and integrators](https://plslend.github.io/legacystack-core/agent.md): what it is, what can never change, the numbers, the risks in order, how to use it safely
+- [Machine-readable protocol data](https://plslend.github.io/legacystack-core/.well-known/legacystack.json): constants, invariants, current addresses, risk statements
+- [Deployment addresses](https://plslend.github.io/legacystack-core/deployment.json): every contract of the current deployment
+- [The playbook: hold, borrow, pass it on](https://plslend.github.io/legacystack-core/playbook.html): the private-bank strategy in protocol terms, with the rules a careful user or agent can adopt
+
+## Reference
+
+- [Audit map: every change against Liquity V1](https://plslend.github.io/legacystack-core/CHANGES_FROM_UPSTREAM.md)
+- [Source code, MIT](https://github.com/PLSLEND/legacystack-core)
+- [The app (testnet)](https://plslend.github.io/legacystack-core/)

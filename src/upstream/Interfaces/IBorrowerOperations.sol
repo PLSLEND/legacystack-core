@@ -7,22 +7,11 @@ interface IBorrowerOperations {
 
     // --- Events ---
 
-    event TroveManagerAddressChanged(address _newTroveManagerAddress);
-    event ActivePoolAddressChanged(address _activePoolAddress);
-    event DefaultPoolAddressChanged(address _defaultPoolAddress);
-    event StabilityPoolAddressChanged(address _stabilityPoolAddress);
-    event GasPoolAddressChanged(address _gasPoolAddress);
-    event CollSurplusPoolAddressChanged(address _collSurplusPoolAddress);
-    event PriceFeedAddressChanged(address  _newPriceFeedAddress);
-    event SortedTrovesAddressChanged(address _sortedTrovesAddress);
-    event LUSDTokenAddressChanged(address _lusdTokenAddress);
-    event LQTYStakingAddressChanged(address _lqtyStakingAddress);
-
     event TroveCreated(address indexed _borrower, uint arrayIndex);
     event TroveUpdated(address indexed _borrower, uint _debt, uint _coll, uint stake, uint8 operation);
     event LUSDBorrowingFeePaid(address indexed _borrower, uint _LUSDFee);
     event AutoRepaySet(address indexed _borrower, uint8 _cadence);
-    event YieldSkimmed(address indexed _borrower, address indexed _caller, uint _collSold, uint _octBought, uint _repaid, uint _cut, uint _toOwner);
+    event YieldSkimmed(address indexed _borrower, address indexed _caller, uint _collSold, uint _octBought, uint _repaid, uint _cut, uint _toOwner, uint _share);
 
     // --- Functions ---
 
@@ -63,12 +52,14 @@ interface IBorrowerOperations {
     // only be made safer by a third party, never riskier, and nothing a third party does counts as life.
     function addCollateralFor(address _owner, address _upperHint, address _lowerHint, uint _collAmount) external;
 
-    // LegacyStack auto-repay from staking rewards (#160, #161). The owner opts in with a cadence: 0 off,
-    // 1 monthly, 2 quarterly, 3 yearly. skimYield sells exactly the wstETH that Lido's rate growth added
-    // since the vault's baseline to the reserve's standing offer and repays the vault with the OCT. The owner
-    // may skim at any time with no cut; anyone else only once per cadence period, only when the yield covers
-    // the period's interest, and keeps 1% of the OCT, capped at 5 OCT. The vault's stETH-denominated collateral
-    // never falls below its baseline, and the ratio can only improve.
+    // LegacyStack auto-repay from staking rewards (#160, #161, #177). The owner opts in with a cadence: 0 off,
+    // 1 monthly, 2 quarterly, 3 yearly. skimYield splits the wstETH that Lido's rate growth added since the
+    // vault's baseline: the protocol's share (15% of a regular vault's yield, 10% with auto-repay on) goes to
+    // the Redemption Buffer's pot, the rest is sold to the buffer's standing offer and repays the vault with the
+    // OCT. The owner may sell at any time with no cut; anyone else only once per cadence period, only when the
+    // yield covers the period's interest, and keeps 1% of the OCT, capped at 5 OCT. On a regular vault anyone
+    // may take the protocol's share alone and keeps 10% of it (at most 0.02 wstETH); the owner keeps the rest
+    // of the yield as collateral. The vault's stETH-denominated collateral never falls below its baseline.
     function setAutoRepay(uint8 _cadence) external;
     function skimYield(address _owner, address _upperHint, address _lowerHint) external;
     function autoRepay(address _owner) external view returns (uint8 cadence, uint64 lastSkim, uint baseline);

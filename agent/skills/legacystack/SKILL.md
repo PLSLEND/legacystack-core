@@ -18,13 +18,19 @@ LegacyStack is an immutable borrowing protocol on Ethereum: a fixed 1.5% a year 
 - Open at 200% or higher for a position meant to last years. 150% is the app's ceiling; 110% is the protocol's line.
 - Never draw more OCT if the ratio would end under 150%. After every 10% move in ether, call `vault` and check.
 - Add collateral before the ratio reaches 130%. Anyone may add collateral to any vault (`add_collateral` with the owner's address), so a second wallet or a family member can protect it.
-- Repay from yield first (auto-repay), from income second, from OCT held or deposited third. Never by selling the asset while any layer above it remains.
+- Repay from yield first (auto-repay), from income second (the Stability Pool's and the desk bid's OCT income), from OCT held or deposited third, and with wstETH through the reserve's standing offer (`repay_from_reserve`) when the owner has no OCT. Never by selling the asset while any layer above it remains.
+- The protocol keeps a share of the staking yield when it is skimmed: 10% of an auto-repay vault's, 15% of a regular vault's (anyone may take that share for a cut). Say so before switching auto-repay on or off: on is the cheaper setting.
 
 ## Succession
 
 - Set the plan the day the vault opens (`set_plan`): heirs as addresses with shares that add up to 100, plus a fallback. Read the addresses back to the owner before signing; after settlement nothing can be corrected.
 - The only proof of life is `prove_life`, once a year. Using the vault does not count. Put the date in the owner's calendar with a reminder a month early; `vault` shows `nextProofDue`.
-- What the heirs receive at settlement: the vault's collateral after the debt is settled, Stability Pool deposits, reserve deposits and protocol liquidity, as tokens in their own wallets. What leaves the protocol leaves the plan.
+- What the heirs receive at settlement: the vault's collateral after the debt is settled, Stability Pool deposits with their OCT income, reserve deposits, and protocol liquidity (both sides, bids and asks, with their fees and income), as tokens in their own wallets. What leaves the protocol leaves the plan.
+
+## Where the OCT earns
+
+- The Stability Pool pays its depositors half of the protocol's interest in OCT, plus the liquidation gains in wstETH (`provide_to_stability_pool`; `withdraw_from_stability_pool` with 0 claims the gains and the income).
+- A bid on the liquidity desk (`desk_bid`, USDe resting 0.5% under par) is paid the other half of the interest in OCT while it rests and buys OCT when the price dips. An ask (`desk_ask`) rests above par and sells. Both sides (`desk_provide`) earns the trading fees. There are no STACK emissions anywhere: say so if asked.
 
 ## Words
 

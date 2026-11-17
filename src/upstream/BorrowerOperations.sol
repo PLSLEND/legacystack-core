@@ -17,7 +17,7 @@ import "./Dependencies/CheckContract.sol";
 import "./Dependencies/IERC20.sol";
 
 contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOperations {
-    string constant public NAME = "BorrowerOperations";
+    string constant NAME = "BorrowerOperations";    // not public (#177, code size)
 
     // --- Connected contract declarations ---
 
@@ -32,7 +32,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
     IRedemptionBuffer public redemptionBuffer;      // LegacyStack: receives mint fees (OCT) and sets the debt ceiling
     ISuccessionRegistry public successionRegistry;  // LegacyStack: succession settlement (the registry closes estates)
     IERC20 public collateralToken;                  // LegacyStack: wstETH
-    address public redemptionBufferAddress;
 
     // LegacyStack auto-repay from staking rewards (#160, #161). baseline = the vault's collateral in stETH
     // units at its last sync (coll x Lido rate); the skimmable yield is whatever Lido's rate growth added on top.
@@ -40,7 +39,12 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
     mapping(address => AutoRepay) public override autoRepay;
     uint constant public SKIM_CUT_BPS = 100;        // the keeper's cut: 1% of the OCT bought ...
     uint constant public SKIM_CUT_CAP = 5e18;       // ... and never more than 5 OCT
-    uint constant public SETTLE_POOL_PREMIUM = 2e16; // a settlement pays the Stability Pool 2% over par for the OCT it provides (#170)
+    // The protocol's share of the staking yield (#177), in wstETH to the Redemption Buffer's pot
+    uint constant public SHARE_BPS = 1500;          // 15% of the yield of a regular vault ...
+    uint constant public SHARE_AUTO_BPS = 1000;     // ... 10% of a vault with auto-repay on
+    uint constant public SHARE_CUT_BPS = 1000;      // the caller's cut of a share taken on its own: 10% of the share ...
+    uint constant public SHARE_CUT_CAP = 2e16;      // ... and never more than 0.02 wstETH
+    uint constant SETTLE_POOL_PREMIUM = 2e16;        // a settlement pays the Stability Pool 2% over par for the OCT it provides (#170)
 
     ILUSDToken public lusdToken;
 
@@ -105,8 +109,12 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         uint toOwner;
         uint maxRepay;
         uint stake;
+        uint bps;
+        uint share;
+        uint collCut;
         bool byOwner;
         bool capped;
+        bool shareOnly;
     }
 
     struct LocalVariables_settle {
@@ -126,18 +134,6 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         uint settled;
         uint stake;
     }
-
-    event TroveManagerAddressChanged(address _newTroveManagerAddress);
-    event ActivePoolAddressChanged(address _activePoolAddress);
-    event DefaultPoolAddressChanged(address _defaultPoolAddress);
-    event StabilityPoolAddressChanged(address _stabilityPoolAddress);
-    event GasPoolAddressChanged(address _gasPoolAddress);
-    event CollSurplusPoolAddressChanged(address _collSurplusPoolAddress);
-    event PriceFeedAddressChanged(address  _newPriceFeedAddress);
-    event SortedTrovesAddressChanged(address _sortedTrovesAddress);
-    event LUSDTokenAddressChanged(address _lusdTokenAddress);
-    event RedemptionBufferAddressChanged(address _redemptionBufferAddress);
-    event SuccessionRegistryAddressChanged(address _successionRegistryAddress);
 
     event TroveCreated(address indexed _borrower, uint arrayIndex);
     event TroveUpdated(address indexed _borrower, uint _debt, uint _coll, uint stake, BorrowerOperation operation);
@@ -190,21 +186,10 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         priceFeed = IPriceFeed(_priceFeedAddress);
         sortedTroves = ISortedTroves(_sortedTrovesAddress);
         lusdToken = ILUSDToken(_lusdTokenAddress);
-        redemptionBufferAddress = _redemptionBufferAddress;
         redemptionBuffer = IRedemptionBuffer(_redemptionBufferAddress);
 
-        emit TroveManagerAddressChanged(_troveManagerAddress);
-        emit ActivePoolAddressChanged(_activePoolAddress);
-        emit DefaultPoolAddressChanged(_defaultPoolAddress);
-        emit StabilityPoolAddressChanged(_stabilityPoolAddress);
-        emit GasPoolAddressChanged(_gasPoolAddress);
-        emit CollSurplusPoolAddressChanged(_collSurplusPoolAddress);
-        emit PriceFeedAddressChanged(_priceFeedAddress);
-        emit SortedTrovesAddressChanged(_sortedTrovesAddress);
-        emit LUSDTokenAddressChanged(_lusdTokenAddress);
-        emit RedemptionBufferAddressChanged(_redemptionBufferAddress);
-        emit SuccessionRegistryAddressChanged(_successionRegistryAddress);
-
+        // The address-changed events of the lineage are not emitted: the addresses are set once, at deployment,
+        // and published with the deployment (#177, code size).
         _renounceOwnership();
     }
 
@@ -441,10 +426,14 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
     }
 
     /*
-    * Sell the vault's accrued staking yield to the reserve and repay the vault with the OCT. The yield is the
-    * wstETH that Lido's rate growth added above the baseline, so the vault's stETH-denominated collateral never
-    * falls below the baseline. The reserve pays par + its premium; the OCT burned here is debt that disappears
-    * without a market leg, and the wstETH stays in the reserve. Nothing moves if the reserve has no inventory.
+    * The vault's accrued staking yield is the wstETH that Lido's rate growth added above the baseline. It is
+    * split (#177): the protocol's share goes to the Redemption Buffer's pot in wstETH (15% of the yield of a
+    * regular vault, 10% when auto-repay is on); the rest is sold to the buffer's standing offer for OCT, which
+    * repays the vault, so the debt disappears without a market leg and the wstETH stays in the buffer. The owner
+    * may sell at any time; anyone else once per cadence period when auto-repay is on. On a regular vault anyone
+    * may take the protocol's share alone: the owner keeps the rest as collateral, the caller keeps a cut of the
+    * share. The vault's stETH-denominated collateral never falls below its baseline. Nothing is sold when the
+    * buffer has no inventory.
     */
     function skimYield(address _owner, address _upperHint, address _lowerHint) external override {
         ContractsCache memory c = ContractsCache(troveManager, activePool, lusdToken);
@@ -457,8 +446,8 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         AutoRepay storage a = autoRepay[_owner];
         v.byOwner = msg.sender == _owner;
-        if (!v.byOwner) {
-            require(a.cadence != 0, "auto-repay off");
+        v.shareOnly = !v.byOwner && a.cadence == 0;             // a regular vault: the protocol's share alone
+        if (!v.byOwner && !v.shareOnly) {
             require(block.timestamp >= uint(a.lastSkim).add(_period(a.cadence)), "not due yet");
         }
 
@@ -467,39 +456,52 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         v.coll = c.troveManager.getTroveColl(_owner);
         v.debt = c.troveManager.getTroveDebt(_owner);
         v.collYield = _yieldAbove(v.coll, a.baseline, v.rate);
-        v.price = priceFeed.lowerOfMarket(v.price);                    // the reserve buys the yield at the offer price (#162)
+        v.bps = a.cadence == 0 ? SHARE_BPS : SHARE_AUTO_BPS;
+        v.price = priceFeed.lowerOfMarket(v.price);                    // the buffer buys the yield at the offer price (#162)
 
-        // OCT the yield buys at the standing offer, capped by the inventory
-        v.oct = v.collYield.mul(v.price).div(DECIMAL_PRECISION.add(redemptionBuffer.OFFER_PREMIUM()));
-        require(v.oct > 0, "no yield yet");
-        uint inventory = redemptionBuffer.inventory();
-        if (v.oct > inventory) { v.oct = inventory; v.capped = true; }
-        require(v.oct > 0, "no inventory");
-        if (!v.byOwner) {
-            uint periodInterest = v.debt.mul(c.troveManager.RATE_PER_YEAR()).mul(_period(a.cadence)).div(365 days).div(DECIMAL_PRECISION);
-            require(v.oct >= periodInterest, "yield below interest");
+        if (v.shareOnly) {
+            v.share = v.collYield.mul(v.bps).div(10000);
+            require(v.share > 0, "no yield yet");
+            v.collCut = LiquityMath._min(v.share.mul(SHARE_CUT_BPS).div(10000), SHARE_CUT_CAP);
+            c.troveManager.decreaseTroveColl(_owner, v.share);
+            c.activePool.sendETH(address(redemptionBuffer), v.share.sub(v.collCut));
+            if (v.collCut > 0) { c.activePool.sendETH(msg.sender, v.collCut); }
+        } else {
+            // OCT the yield left after the protocol's share buys at the standing offer, capped by the inventory
+            v.oct = v.collYield.mul(uint(10000).sub(v.bps)).div(10000).mul(v.price).div(DECIMAL_PRECISION.add(redemptionBuffer.OFFER_PREMIUM()));
+            require(v.oct > 0, "no yield yet");
+            uint inventory = redemptionBuffer.inventory();
+            if (v.oct > inventory) { v.oct = inventory; v.capped = true; }
+            require(v.oct > 0, "no inventory");
+            if (!v.byOwner) {
+                uint periodInterest = v.debt.mul(c.troveManager.RATE_PER_YEAR()).mul(_period(a.cadence)).div(365 days).div(DECIMAL_PRECISION);
+                require(v.oct >= periodInterest, "yield below interest");
+            }
+            v.collIn = redemptionBuffer.quoteInventory(v.oct, v.price);
+            // The protocol's share of the yield the sale consumes: share / (collIn + share) = bps / 10000
+            v.share = v.collIn.mul(v.bps).div(uint(10000).sub(v.bps));
+            assert(v.collIn.add(v.share) <= v.collYield);
+
+            // Split: the keeper's cut, the repayment (never below the minimum net debt), the rest to the owner
+            v.cut = v.byOwner ? 0 : LiquityMath._min(v.oct.mul(SKIM_CUT_BPS).div(10000), SKIM_CUT_CAP);
+            v.repay = v.oct.sub(v.cut);
+            v.maxRepay = _getNetDebt(v.debt) > MIN_NET_DEBT ? _getNetDebt(v.debt).sub(MIN_NET_DEBT) : 0;
+            if (v.repay > v.maxRepay) { v.toOwner = v.repay.sub(v.maxRepay); v.repay = v.maxRepay; }
+
+            // Move the yield to the buffer, take the OCT, burn the repayment straight from the buffer's balance
+            c.troveManager.decreaseTroveColl(_owner, v.collIn.add(v.share));
+            c.activePool.sendETH(address(redemptionBuffer), v.collIn.add(v.share));
+            redemptionBuffer.serveSkim(_owner, v.oct, v.collIn, msg.sender, v.cut, v.toOwner);
+            if (v.repay > 0) {
+                _repayLUSD(c.activePool, c.lusdToken, address(redemptionBuffer), v.repay);
+                v.debt = c.troveManager.decreaseTroveDebt(_owner, v.repay);
+            }
         }
-        v.collIn = redemptionBuffer.quoteInventory(v.oct, v.price);
-        assert(v.collIn <= v.collYield);
-
-        // Split: the keeper's cut, the repayment (never below the minimum net debt), the rest to the owner
-        v.cut = v.byOwner ? 0 : LiquityMath._min(v.oct.mul(SKIM_CUT_BPS).div(10000), SKIM_CUT_CAP);
-        v.repay = v.oct.sub(v.cut);
-        v.maxRepay = _getNetDebt(v.debt) > MIN_NET_DEBT ? _getNetDebt(v.debt).sub(MIN_NET_DEBT) : 0;
-        if (v.repay > v.maxRepay) { v.toOwner = v.repay.sub(v.maxRepay); v.repay = v.maxRepay; }
-
-        // Move the yield to the reserve, take the OCT, burn the repayment straight from the reserve's balance
-        c.troveManager.decreaseTroveColl(_owner, v.collIn);
-        c.activePool.sendETH(redemptionBufferAddress, v.collIn);
-        redemptionBuffer.serveSkim(_owner, v.oct, v.collIn, msg.sender, v.cut, v.toOwner);
-        if (v.repay > 0) {
-            _repayLUSD(c.activePool, c.lusdToken, redemptionBufferAddress, v.repay);
-            v.debt = c.troveManager.decreaseTroveDebt(_owner, v.repay);
-        }
-        v.coll = v.coll.sub(v.collIn);
+        v.coll = v.coll.sub(v.collIn).sub(v.share);
         _requireICRisAboveMCR(LiquityMath._computeCR(v.coll, v.debt, v.price));
+        _requireNewTCRisAboveCCR(_getTCR(v.price));                    // collateral left the system: never into Recovery Mode
         // A full skim leaves the vault exactly at its baseline (rounded up by a wei of stETH, so no dust is ever
-        // read as yield); a skim capped by the inventory keeps the baseline, and the rest stays skimmable.
+        // read as yield); a sale capped by the inventory keeps the baseline, and the rest stays skimmable.
         if (!v.capped) { a.baseline = v.coll.mul(v.rate).add(DECIMAL_PRECISION.sub(1)).div(DECIMAL_PRECISION); }
 
         v.stake = c.troveManager.updateStakeAndTotalStakes(_owner);
@@ -507,7 +509,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         a.lastSkim = uint64(block.timestamp);
 
         emit TroveUpdated(_owner, v.debt, v.coll, v.stake, BorrowerOperation.adjustTrove);
-        emit YieldSkimmed(_owner, msg.sender, v.collIn, v.oct, v.repay, v.cut, v.toOwner);
+        emit YieldSkimmed(_owner, msg.sender, v.collIn, v.oct, v.repay, v.cut, v.toOwner, v.share);
     }
 
     function _period(uint8 _cadence) internal pure returns (uint) {
@@ -596,7 +598,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         // the vault at or above the minimum net debt (never a dust vault in the list).
         v.spAvailable = IStabilityPool(stabilityPoolAddress).getTotalLUSDDeposits();
         v.spAvailable = v.spAvailable > 1e18 ? v.spAvailable.sub(1e18) : 0;
-        v.liquidity = _octAvailable.add(c.lusdToken.balanceOf(redemptionBufferAddress)).add(v.spAvailable);
+        v.liquidity = _octAvailable.add(c.lusdToken.balanceOf(address(redemptionBuffer))).add(v.spAvailable);
         if (v.liquidity >= v.netDebt) {
             v.toSettle = v.netDebt;
         } else {
@@ -613,11 +615,11 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
 
         // 2. Redemption Buffer inventory at the settlement price plus the standing offer's premium: the estate pays
         //    what any borrower pays for the reserve's OCT (#170).
-        v.fromBuffer = LiquityMath._min(v.toSettle, c.lusdToken.balanceOf(redemptionBufferAddress));
+        v.fromBuffer = LiquityMath._min(v.toSettle, c.lusdToken.balanceOf(address(redemptionBuffer)));
         if (v.fromBuffer > 0) {
             v.collOut = v.fromBuffer.mul(DECIMAL_PRECISION.add(redemptionBuffer.OFFER_PREMIUM())).div(v.settlePrice);
-            _repayLUSD(c.activePool, c.lusdToken, redemptionBufferAddress, v.fromBuffer);
-            c.activePool.sendETH(redemptionBufferAddress, v.collOut);
+            _repayLUSD(c.activePool, c.lusdToken, address(redemptionBuffer), v.fromBuffer);
+            c.activePool.sendETH(address(redemptionBuffer), v.collOut);
             v.toSettle = v.toSettle.sub(v.fromBuffer);
             v.collRemoved = v.collRemoved.add(v.collOut);
         }
@@ -666,7 +668,7 @@ contract BorrowerOperations is LiquityBase, Ownable, CheckContract, IBorrowerOpe
         _requireUserAcceptsFee(LUSDFee, _LUSDAmount, _maxFeePercentage);
 
         // LegacyStack: the mint fee is OCT inventory in the Redemption Buffer (#101)
-        _lusdToken.mint(redemptionBufferAddress, LUSDFee);
+        _lusdToken.mint(address(redemptionBuffer), LUSDFee);
 
         return LUSDFee;
     }

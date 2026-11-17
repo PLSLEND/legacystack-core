@@ -14,4 +14,7 @@ await show('quote_open', { collateralWstETH: '10', targetRatioPercent: 250 });
 await show('keeper_pending', { maxScan: 20 });
 await show('build_tx', { action: 'set_plan', heirs: [{ address: '0x0D816b83c13217Ab6DCD48B00CB2250066279FC5', sharePercent: 70 }, { address: '0x000000000000000000000000000000000000dEaD', sharePercent: 30 }] });
 await show('build_tx', { action: 'open_vault', amount: '10', borrowOCT: '10000' });
+await show('build_tx', { action: 'repay_from_reserve', amount: '100' });
+await show('build_tx', { action: 'desk_bid', amount: '1000' });
+await show('build_tx', { action: 'skim_yield', owner: '0x0D816b83c13217Ab6DCD48B00CB2250066279FC5' });
 await client.close();

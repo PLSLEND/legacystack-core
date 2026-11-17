@@ -23,10 +23,13 @@ Client configuration (Claude Desktop, Claude Code, Cursor and others take this s
 Environment: `LEGACYSTACK_RPC` (an RPC for the deployment's chain), `LEGACYSTACK_DEPLOYMENT` (a URL or a path to
 `deployment.json`; default the site's), `LEGACYSTACK_SITE`.
 
-Tools: `protocol_overview` (read first), `protocol_state`, `vault(owner)`, `quote_open(collateralWstETH,
+Tools: `protocol_overview` (read first), `protocol_state` (with the interest route and the desk's state),
+`vault(owner)` (position in wstETH and ETH, pool income, desk positions, plan), `quote_open(collateralWstETH,
 targetRatioPercent)`, `keeper_pending`, `build_tx(action, ...)` for approve_wst, open_vault, add_collateral,
-repay, close_vault, set_auto_repay, set_plan, prove_life, provide_to_stability_pool,
-withdraw_from_stability_pool, reserve_deposit, finish_inherited_payout. Resource: the protocol brief.
+repay, repay_from_reserve, close_vault, set_auto_repay, skim_yield, set_plan, prove_life,
+provide_to_stability_pool, withdraw_from_stability_pool, reserve_deposit, finish_inherited_payout,
+desk_provide, desk_bid, desk_ask, desk_claim, desk_collect, desk_withdraw, desk_withdraw_bid,
+desk_withdraw_ask. Resource: the protocol brief.
 
 Smoke test against the current deployment: `LEGACYSTACK_DEPLOYMENT=../../deployments/11155111.json node test/client.mjs`.
 

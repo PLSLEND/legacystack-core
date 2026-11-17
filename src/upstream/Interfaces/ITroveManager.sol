@@ -50,7 +50,8 @@ interface ITroveManager is ILiquityBase {
         address _lusdTokenAddress,
         address _sortedTrovesAddress,
         address _redemptionBufferAddress,
-        address _successionRegistryAddress
+        address _successionRegistryAddress,
+        address _interestRecipientAddress
     ) external;
 
     function stabilityPool() external view returns (IStabilityPool);

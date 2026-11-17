@@ -4,8 +4,10 @@
   "vocabulary": {
     "OCT": "the protocol's loan unit: minted when a user borrows, burned when the user repays; over-collateralised by wstETH; redeemable for a dollar's worth of wstETH less the redemption fee; no issuer, no freeze function. Not a stablecoin, not a payment token, not a deposit.",
     "vault": "a user's position: wstETH collateral and OCT debt",
-    "redemptionReserve": "the protocol's reserve of wstETH and OCT (contract RedemptionBuffer): receives all fees and interest, serves redemptions first, sets the lending ceiling, pays depositors a share of the fees it earns, releases surplus through a waterfall",
-    "stabilityPool": "OCT deposited to absorb liquidations and settlements, paid in wstETH",
+    "redemptionReserve": "the protocol's reserve of wstETH and OCT (contract RedemptionBuffer): receives the mint fees, the redemption fees, the standing offer's premium and the protocol's share of the staking yield, serves redemptions first, sets the lending ceiling, pays depositors a share of the fees it earns, releases surplus through a waterfall",
+    "stabilityPool": "OCT deposited to absorb liquidations and settlements, paid in wstETH, and paid half of the protocol's interest in OCT",
+    "liquidityDesk": "holds OCT/USDe pool positions for their owners: both sides (0.98 to 1.02), a bid (USDe resting 0.5% under par, paid the other half of the protocol's interest in OCT while it rests), an ask (OCT resting 0.5% to 2% above par); all pass to the heirs with the plan",
+    "interestRoute": "TroveManager mints the interest to the InterestSplitter: half to the Stability Pool's depositors through InterestIssuance, half to the desk's bids; a half with nobody to pay goes to the reserve's inventory",
     "successionPlan": "up to ten heirs with shares in basis points plus a fallback heir; one proof of life a year; settlement after 365 days of silence plus 30 days of grace",
     "keeperDesk": "permissionless housekeeping: whoever presses a button does the work and keeps what the protocol pays for it"
   },
@@ -16,7 +18,7 @@
     "collateral is never lent out or rehypothecated; it moves only by its owner or by the protocol's liquidation, redemption and settlement rules",
     "the oracle is Chainlink ETH/USD (and Chronicle ETH/USD where deployed) times Lido stEthPerToken(); never a market or a pool",
     "a degraded oracle pauses new borrowing only; repaying, adding collateral and closing are never blocked; thirty days without a price source is a permanent wind-down",
-    "revenue never leaves the protocol: reserve capital, depositor fees, Stability Pool gains, protocol-owned liquidity, STACK burns, housekeeping rewards"
+    "revenue never leaves the protocol: interest to the Stability Pool's depositors and the desk's bids, fees and the yield share to the reserve, depositor fees, Stability Pool gains, protocol-owned liquidity, STACK burns, housekeeping rewards; no STACK emissions"
   ],
   "parameters": {
     "interestPerYear": 0.015,
@@ -45,6 +47,9 @@
     "successionGraceDays": 30,
     "executorReward": "0.1% of the collateral, at most 0.02 wstETH",
     "autoRepay": "optional; monthly, quarterly or yearly; keeper cut 1% of the OCT bought, at most 5 OCT",
+    "protocolShareOfStakingYield": "15% of a regular vault's yield, 10% with auto-repay on, in wstETH to the reserve; a regular vault's share may be taken by anyone for 10% of it, at most 0.02 wstETH",
+    "interestRoute": "50% to the Stability Pool's depositors, 50% to the desk's bids, in OCT; empty venues fall back to the reserve's inventory",
+    "deskRanges": "both sides 0.98 to 1.02; bids 0.995 to 1.000; asks 1.005 to 1.02",
     "maxHeirs": 10
   },
   "risks": [

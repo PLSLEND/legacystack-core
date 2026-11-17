@@ -36,8 +36,12 @@ contract DeskNPMMock {
     struct DecreaseLiquidityParams { uint tokenId; uint128 liquidity; uint amount0Min; uint amount1Min; uint deadline; }
     struct CollectParams { uint tokenId; address recipient; uint128 amount0Max; uint128 amount1Max; }
     int24 public lastLower; int24 public lastUpper;
+    function _amounts(uint d0, uint d1) internal pure returns (uint a0, uint a1) {
+        if (d0 == 0 || d1 == 0) return (d0, d1);                 // one-sided: the pool takes what is offered
+        a0 = d0 < d1 ? d0 : d1; a1 = a0;                          // at par a two-sided position takes equal amounts
+    }
     function mint(MintParams calldata p) external returns (uint tokenId, uint128 liquidity, uint a0, uint a1) {
-        a0 = p.amount0Desired < p.amount1Desired ? p.amount0Desired : p.amount1Desired; a1 = a0;
+        (a0, a1) = _amounts(p.amount0Desired, p.amount1Desired);
         _pull(p.token0, p.token1, a0, a1);
         minted++; tokenId = minted; lastLower = p.tickLower; lastUpper = p.tickUpper;
         liquidity = uint128(a0 + a1);
@@ -45,7 +49,7 @@ contract DeskNPMMock {
     }
     function increaseLiquidity(IncreaseLiquidityParams calldata p) external returns (uint128 liquidity, uint a0, uint a1) {
         P storage x = pos[p.tokenId];
-        a0 = p.amount0Desired < p.amount1Desired ? p.amount0Desired : p.amount1Desired; a1 = a0;
+        (a0, a1) = _amounts(p.amount0Desired, p.amount1Desired);
         _pull(x.token0, x.token1, a0, a1);
         liquidity = uint128(a0 + a1); x.liquidity += liquidity; x.amount0 += a0; x.amount1 += a1;
     }
@@ -69,6 +73,22 @@ contract DeskNPMMock {
     function ownerOf(uint tokenId) external view returns (address) { require(!pos[tokenId].burned, "burned"); return pos[tokenId].owner; }
     /// the pool books fees to the position (the tokens come from outside, as fees do)
     function setFees(uint tokenId, uint f0, uint f1) external { pos[tokenId].owed0 += uint128(f0); pos[tokenId].owed1 += uint128(f1); }
+    /// a trade crosses the position at par: it gives up `amount` of one token for the same amount of the other
+    /// (token1 out and token0 in when sellingToken0, the reverse otherwise); the trader supplies and receives the tokens
+    function fill(uint tokenId, bool sellingToken0, uint amount, address trader) external {
+        P storage x = pos[tokenId];
+        if (sellingToken0) {
+            require(x.amount1 >= amount, "no token1 to give");
+            require(IERC20D(x.token0).transferFrom(trader, address(this), amount), "in0");
+            require(IERC20D(x.token1).transfer(trader, amount), "out1");
+            x.amount0 += amount; x.amount1 -= amount;
+        } else {
+            require(x.amount0 >= amount, "no token0 to give");
+            require(IERC20D(x.token1).transferFrom(trader, address(this), amount), "in1");
+            require(IERC20D(x.token0).transfer(trader, amount), "out0");
+            x.amount1 += amount; x.amount0 -= amount;
+        }
+    }
     function _pull(address t0, address t1, uint a0, uint a1) internal {
         if (a0 > 0) require(IERC20D(t0).transferFrom(msg.sender, address(this), a0), "pull0");
         if (a1 > 0) require(IERC20D(t1).transferFrom(msg.sender, address(this), a1), "pull1");

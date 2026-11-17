@@ -8,9 +8,9 @@ import {Script, console} from "forge-std/Script.sol";
 *
 * What it deploys: the whole core (TroveManager, BorrowerOperations, StabilityPool, pools, SortedTroves,
 * HintHelpers, MultiTroveGetter, OCT), the LegacyStack contracts (PriceFeed, RedemptionBuffer,
-* SuccessionRegistry), the periphery (Keeper desk, burn auction, surplus splitter, POL keeper, reserve
-* rewards), a testnet wstETH, STACK and USDe with faucets, and the issuance stub. Then it wires every
-* setAddresses (each contract renounces ownership inside), opens a small seed vault from the deployer, parks
+* SuccessionRegistry), the periphery (Keeper desk, liquidity desk, interest issuance and splitter, burn auction,
+* surplus splitter, POL keeper, reserve rewards), and a testnet wstETH, STACK and USDe with faucets. Then it
+* wires every setAddresses (each contract renounces ownership inside), opens a small seed vault from the deployer, parks
 * 1 OCT in the Stability Pool so the pool never sits at zero and the "last vault" rule never bites a user,
 * seeds the OCT/USDe pool and the reserve rewards. Finally it writes deployments/<chainId>.json.
 *
@@ -30,7 +30,7 @@ import {Script, console} from "forge-std/Script.sol";
 *
 * Run: forge script script/Deploy.s.sol --rpc-url $RPC --broadcast --private-key $PK  (or --account)
 */
-interface IDeployTM { function setAddresses(address,address,address,address,address,address,address,address,address,address,address) external; }
+interface IDeployTM { function setAddresses(address,address,address,address,address,address,address,address,address,address,address,address) external; }
 interface IDeployBO { function setAddresses(address,address,address,address,address,address,address,address,address,address,address,address) external; function openTrove(uint,uint,address,address,uint) external; }
 interface IDeploySP { function setAddresses(address,address,address,address,address,address,address,address,address) external; function provideToSP(uint) external; }
 interface IDeployAP { function setAddresses(address,address,address,address,address,address) external; }
@@ -56,6 +56,7 @@ contract Deploy is Script {
         address oct; address wst; address feed; address buffer; address registry; address issuance; address agg;
         address desk; address usde; address pool; address lpDesk;
         address stack; address auction; address pol; address splitter; address rewards;
+        address interestSplitter;
     }
 
     function run() external {
@@ -89,8 +90,9 @@ contract Deploy is Script {
         a.gas = _deploy("GasPool.sol:GasPool");
         a.st  = _deploy("SortedTroves.sol:SortedTroves");
         a.hh  = _deploy("HintHelpers.sol:HintHelpers");
-        a.issuance = _deploy("src/testnet/IssuanceStub.sol:IssuanceStub");
         a.oct = _deployArgs("LUSDToken.sol:LUSDToken", abi.encode(a.tm, a.sp, a.bo));
+        // The Stability Pool's issuance slot pays the depositors the protocol's interest, in OCT (#177)
+        a.issuance = _deployArgs("src/periphery/InterestIssuance.sol:InterestIssuance", abi.encode(a.oct, a.sp));
         address chronicle = vm.envOr("CHRONICLE_ETH_USD", address(0));
         if (chronicle == address(0)) { chronicle = _deployArgs("src/testnet/MockChronicle.sol:MockChronicle", abi.encode(_ethUsd18(aggregator))); }
         address stEthUsd = vm.envOr("STETH_USD_AGGREGATOR", address(0));
@@ -118,10 +120,13 @@ contract Deploy is Script {
             ? _deployArgs("src/periphery/PolKeeperV3.sol:PolKeeperV3", abi.encode(a.wst, a.oct, a.buffer, a.feed, a.pool, npm, a.sp, a.lpDesk))
             : a.auction;
         a.splitter = _deployArgs("src/periphery/SurplusSplitter.sol:SurplusSplitter", abi.encode(a.wst, a.auction, a.pol));
+        // Where TroveManager mints the interest (#177): half to the Stability Pool's depositors, half to the desk's
+        // bids; a half with nobody to pay goes to the buffer's inventory (a chain without a desk: that half always)
+        a.interestSplitter = _deployArgs("src/periphery/InterestSplitter.sol:InterestSplitter", abi.encode(a.oct, a.sp, a.issuance, a.lpDesk, a.buffer));
         a.rewards = _deployArgs("src/periphery/ReserveRewards.sol:ReserveRewards", abi.encode(a.stack, a.buffer, uint(1e18) / uint(1 days))); // 1 STACK per wstETH per day
 
         IDeploySorted(a.st).setParams(1_000_000, a.tm, a.bo);
-        IDeployTM(a.tm).setAddresses(a.bo, a.ap, a.dp, a.sp, a.gas, a.csp, a.feed, a.oct, a.st, a.buffer, a.registry);
+        IDeployTM(a.tm).setAddresses(a.bo, a.ap, a.dp, a.sp, a.gas, a.csp, a.feed, a.oct, a.st, a.buffer, a.registry, a.interestSplitter);
         IDeployBO(a.bo).setAddresses(a.tm, a.ap, a.dp, a.sp, a.gas, a.csp, a.feed, a.st, a.oct, a.buffer, a.wst, a.registry);
         IDeploySP(a.sp).setAddresses(a.bo, a.tm, a.ap, a.oct, a.st, a.feed, a.issuance, a.wst, a.registry);
         IDeployAP(a.ap).setAddresses(a.bo, a.tm, a.sp, a.dp, a.csp, a.wst);
@@ -177,6 +182,8 @@ contract Deploy is Script {
         vm.serializeAddress(json, "redemptionBuffer", a.buffer);
         vm.serializeAddress(json, "successionRegistry", a.registry);
         vm.serializeAddress(json, "keeperDesk", a.desk);
+        vm.serializeAddress(json, "interestIssuance", a.issuance);
+        vm.serializeAddress(json, "interestSplitter", a.interestSplitter);
         vm.serializeAddress(json, "liquidityDesk", a.lpDesk);
         vm.serializeAddress(json, "usde", a.usde);
         vm.serializeAddress(json, "octUsdePool", a.pool);

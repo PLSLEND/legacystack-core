@@ -263,12 +263,14 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         address _lusdTokenAddress,
         address _sortedTrovesAddress,
         address _redemptionBufferAddress,
-        address _successionRegistryAddress
+        address _successionRegistryAddress,
+        address _interestRecipientAddress
     )
         external
         override
         onlyOwner
     {
+        checkContract(_interestRecipientAddress);
         checkContract(_borrowerOperationsAddress);
         checkContract(_activePoolAddress);
         checkContract(_defaultPoolAddress);
@@ -292,7 +294,7 @@ contract TroveManager is LiquityBase, Ownable, CheckContract, ITroveManager {
         sortedTroves = ISortedTroves(_sortedTrovesAddress);
         redemptionBuffer = IRedemptionBuffer(_redemptionBufferAddress);
         successionRegistryAddress = _successionRegistryAddress;
-        interestRecipientAddress = _redemptionBufferAddress;
+        interestRecipientAddress = _interestRecipientAddress;   // the buffer, or the interest splitter (#177)
         lastRateUpdate = block.timestamp;
 
 

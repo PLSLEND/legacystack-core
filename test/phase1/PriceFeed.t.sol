@@ -63,7 +63,7 @@ contract PriceFeedTest is LegacyStackBase {
         buffer = deployCode("RedemptionBuffer.sol:RedemptionBuffer");
         registry = deployCode("SuccessionRegistry.sol:SuccessionRegistry", abi.encode(uint(10), uint(0.02 ether)));
         ISorted(st).setParams(1_000_000, tm, bo);
-        ITM(tm).setAddresses(bo, ap, dp, sp, gas, csp, feed, oct, st, buffer, registry);
+        ITM(tm).setAddresses(bo, ap, dp, sp, gas, csp, feed, oct, st, buffer, registry, buffer);
         IBO(bo).setAddresses(tm, ap, dp, sp, gas, csp, feed, st, oct, buffer, wst, registry);
         ISP(sp).setAddresses(bo, tm, ap, oct, st, feed, issuance, wst, registry);
         IPoolV(ap).setAddresses(bo, tm, sp, dp, csp, wst);

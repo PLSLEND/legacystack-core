@@ -9,8 +9,10 @@ pragma solidity 0.8.28;
 * What a run does, in order: accrue interest; liquidate the vaults passed in (the protocol pays 200 OCT plus
 * 0.5% of the collateral per vault, Liquity's gas compensation); execute the successions passed in (the
 * protocol pays the estate's executor reward) and hand each settled estate's protocol-provided liquidity to
-* its heirs through the liquidity desk, so one press moves everything; skim the staking yield of the vaults passed in whose auto-repay
-* is due (the protocol pays 1% of the OCT, capped at 5 OCT); and, when `tend` is set, the reserve's
+* its heirs through the liquidity desk, so one press moves everything; skim the staking yield of the vaults passed in: a sale of the
+* yield for a vault whose auto-repay is due (the protocol pays 1% of the OCT, capped at 5 OCT), or the protocol's
+* share of the yield alone for a regular vault (the protocol pays 10% of the share in wstETH, capped at 0.02; #177);
+* and, when `tend` is set, the reserve's
 * housekeeping: release the surplus if one is due, split whatever the surplus sink holds, let the POL keeper
 * work and harvest its fees (the splitter pays the caller 0.1% of what it splits) and finish the payout of
 * inherited reserve deposits the reserve can now spare (the reserve pays the caller 0.1% of each payout); then sweep the OCT and collateral this contract
@@ -21,6 +23,7 @@ pragma solidity 0.8.28;
 */
 interface IDeskTroveManager {
     function accrueInterest() external;
+    function interestRecipientAddress() external view returns (address);
     function batchLiquidateTroves(address[] calldata troves) external;
     function getCurrentICR(address borrower, uint price) external view returns (uint);
     function getEntireDebtAndColl(address borrower) external view returns (uint debt, uint coll, uint pendingDebt, uint pendingColl);
@@ -39,6 +42,10 @@ interface IDeskBorrowerOperations {
     function autoRepay(address owner) external view returns (uint8 cadence, uint64 lastSkim, uint baseline);
     function SKIM_CUT_BPS() external view returns (uint);
     function SKIM_CUT_CAP() external view returns (uint);
+    function SHARE_BPS() external view returns (uint);
+    function SHARE_AUTO_BPS() external view returns (uint);
+    function SHARE_CUT_BPS() external view returns (uint);
+    function SHARE_CUT_CAP() external view returns (uint);
 }
 interface IDeskWstETH { function stEthPerToken() external view returns (uint); }
 interface IDeskSortedTroves { function getLast() external view returns (address); function getPrev(address id) external view returns (address); function getSize() external view returns (uint); }
@@ -58,7 +65,8 @@ interface IDeskRegistry {
     function REWARD_CAP() external view returns (uint);
 }
 interface IDeskERC20 { function balanceOf(address) external view returns (uint); function transfer(address, uint) external returns (bool); }
-interface IDeskLiquidity { function positionOf(address owner) external view returns (uint); function inherit(address owner) external; }
+interface IDeskLiquidity { function hasPositions(address owner) external view returns (bool); function inherit(address owner) external; }
+interface IDeskInterest { function split() external returns (uint, uint, uint); }
 
 contract KeeperDesk {
     IDeskTroveManager public immutable troveManager;
@@ -72,6 +80,7 @@ contract KeeperDesk {
     address public immutable liquidityDesk;         // zero on a chain without the market pool
 
     uint public constant PAYOUTS_PER_RUN = 10;      // inherited deposits finished per run, at most
+    uint public constant SHARE_MIN_CUT = 1e15;      // a regular vault is listed once the caller's cut of its share reaches 0.001 wstETH
 
     event Run(address indexed caller, uint liquidated, uint executed, uint skimmed, uint surplusReleased, uint octPaid, uint collPaid);
 
@@ -101,8 +110,8 @@ contract KeeperDesk {
             try successionRegistry.execute(_execute[i]) { executed++; } catch {}
             // the estate's liquidity provided through the protocol goes to the heirs in the same press
             if (liquidityDesk != address(0)) {
-                try IDeskLiquidity(liquidityDesk).positionOf(_execute[i]) returns (uint tokenId) {
-                    if (tokenId != 0) { try IDeskLiquidity(liquidityDesk).inherit(_execute[i]) {} catch {} }
+                try IDeskLiquidity(liquidityDesk).hasPositions(_execute[i]) returns (bool any) {
+                    if (any) { try IDeskLiquidity(liquidityDesk).inherit(_execute[i]) {} catch {} }
                 } catch {}
             }
         }
@@ -126,6 +135,10 @@ contract KeeperDesk {
     // (periphery contracts, any of which may be absent on a chain).
     function _tend_() internal returns (uint released) {
         _finishPayouts();
+        // the minted interest goes where it is owed: the Stability Pool's depositors and the desk's bids (#177)
+        try troveManager.interestRecipientAddress() returns (address recipient) {
+            if (recipient.code.length > 0) { try IDeskInterest(recipient).split() {} catch {} }
+        } catch {}
         try redemptionBuffer.releaseSurplus() returns (uint amount) { released = amount; } catch {}
         address sink = redemptionBuffer.surplusSink();
         if (sink.code.length > 0) {
@@ -153,7 +166,7 @@ contract KeeperDesk {
         }
     }
 
-    struct Rewards { uint threshold; uint gasComp; uint divisor; uint rewardBps; uint rewardCap; uint rate; uint ratePerYear; uint premium; uint inventory; uint cutBps; uint cutCap; }
+    struct Rewards { uint threshold; uint gasComp; uint divisor; uint rewardBps; uint rewardCap; uint rate; uint ratePerYear; uint premium; uint inventory; uint cutBps; uint cutCap; uint shareBps; uint shareAutoBps; uint shareCutBps; uint shareCutCap; }
     struct Pending { uint price; bool oracleHealthy; bool recoveryMode; address[] liquidatable; address[] executable; address[] skimmable; uint octReward; uint collReward; bool tend; uint payouts; }
 
     struct Scan { address owner; address[] liq; address[] exe; address[] skm; uint nl; uint ne; uint ns; }
@@ -175,7 +188,11 @@ contract KeeperDesk {
             premium: redemptionBuffer.OFFER_PREMIUM(),
             inventory: redemptionBuffer.inventory(),
             cutBps: borrowerOperations.SKIM_CUT_BPS(),
-            cutCap: borrowerOperations.SKIM_CUT_CAP()
+            cutCap: borrowerOperations.SKIM_CUT_CAP(),
+            shareBps: borrowerOperations.SHARE_BPS(),
+            shareAutoBps: borrowerOperations.SHARE_AUTO_BPS(),
+            shareCutBps: borrowerOperations.SHARE_CUT_BPS(),
+            shareCutCap: borrowerOperations.SHARE_CUT_CAP()
         });
 
         uint n = sortedTroves.getSize();
@@ -225,8 +242,8 @@ contract KeeperDesk {
         (bool isLiq, bool isExe, uint octAdd, uint collAdd) = _check(_s.owner, _w.price, _r);
         if (isLiq) _s.liq[_s.nl++] = _s.owner;
         if (isExe) _s.exe[_s.ne++] = _s.owner;
-        (bool isSkim, uint cut) = _checkSkim(_s.owner, _w.price, _r);
-        if (isSkim) { _s.skm[_s.ns++] = _s.owner; octAdd += cut; }
+        (bool isSkim, uint octCut, uint collCut) = _checkSkim(_s.owner, _w.price, _r);
+        if (isSkim) { _s.skm[_s.ns++] = _s.owner; octAdd += octCut; collAdd += collCut; }
         _w.octReward += octAdd;
         _w.collReward += collAdd;
     }
@@ -259,20 +276,28 @@ contract KeeperDesk {
         return coll > base ? coll - base : 0;
     }
 
-    // A keeper's skim is worth doing when the owner opted in, the cadence period has passed, the reserve has
-    // inventory, and the yield covers the period's interest. Returns the keeper's cut at today's price.
-    function _checkSkim(address _owner, uint _price, Rewards memory _r) internal view returns (bool, uint) {
+    // A keeper's skim is worth doing: on a regular vault, when the caller's cut of the protocol's share of the
+    // yield reaches SHARE_MIN_CUT (paid in wstETH); on a vault with auto-repay on, when the cadence period has
+    // passed, the reserve has inventory and the yield covers the period's interest (paid in OCT). Returns the
+    // caller's cut at today's price, in OCT and in wstETH.
+    function _checkSkim(address _owner, uint _price, Rewards memory _r) internal view returns (bool, uint, uint) {
         (uint8 cadence, uint64 lastSkim, uint baseline) = borrowerOperations.autoRepay(_owner);
-        if (cadence == 0 || _r.inventory == 0) return (false, 0);
-        uint period = cadence == 1 ? 30 days : cadence == 2 ? 91 days : 365 days;
-        if (block.timestamp < uint(lastSkim) + period) return (false, 0);
         (uint debt, uint coll, , ) = troveManager.getEntireDebtAndColl(_owner);
         uint base = baseline * 1e18 / _r.rate;
         uint yield = coll > base ? coll - base : 0;
-        uint oct = yield * _price / (1e18 + _r.premium);
+        if (cadence == 0) {
+            uint share = yield * _r.shareBps / 10000;
+            uint collCut = share * _r.shareCutBps / 10000;
+            if (collCut > _r.shareCutCap) collCut = _r.shareCutCap;
+            return (collCut >= SHARE_MIN_CUT, 0, collCut);
+        }
+        if (_r.inventory == 0) return (false, 0, 0);
+        uint period = cadence == 1 ? 30 days : cadence == 2 ? 91 days : 365 days;
+        if (block.timestamp < uint(lastSkim) + period) return (false, 0, 0);
+        uint oct = yield * (10000 - _r.shareAutoBps) / 10000 * _price / (1e18 + _r.premium);
         if (oct > _r.inventory) oct = _r.inventory;
-        if (oct < debt * _r.ratePerYear * period / 365 days / 1e18) return (false, 0);
+        if (oct < debt * _r.ratePerYear * period / 365 days / 1e18) return (false, 0, 0);
         uint cut = oct * _r.cutBps / 10000;
-        return (true, cut < _r.cutCap ? cut : _r.cutCap);
+        return (true, cut < _r.cutCap ? cut : _r.cutCap, 0);
     }
 }

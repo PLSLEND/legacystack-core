@@ -31,12 +31,12 @@ Lineage: Liquity V1 (MIT). `src/upstream` is the Liquity code with the changes l
 |---|---|
 | `src/upstream/` | Liquity V1 core (TroveManager, BorrowerOperations, StabilityPool, pools, SortedTroves, OCT token, HintHelpers, MultiTroveGetter), modified |
 | `src/legacystack/PriceFeed.sol` | wstETH/USD = Chainlink ETH/USD × Lido `stEthPerToken()`, breakers, reduce-only state, self-healing, no keys |
-| `src/legacystack/RedemptionBuffer.sol` | the Redemption Reserve: fee and interest recipient, reserve-first redemptions, standing offer at par + 0.5%, debt ceiling, reserve deposits with fee sharing, the surplus waterfall, payout of inherited deposits |
+| `src/legacystack/RedemptionBuffer.sol` | the Redemption Reserve: fees and the protocol's share of the staking yield, reserve-first redemptions, standing offer at par + 0.5%, debt ceiling, reserve deposits with fee sharing, the surplus waterfall, payout of inherited deposits |
 | `src/legacystack/SuccessionRegistry.sol` | heirs by basis points, one proof of life a year, 30-day grace, settlement (estate OCT, reserve at par + 0.5%, Stability Pool at par + 2%), push delivery to the heirs' wallets, escrow |
-| `src/periphery/` | ownerless periphery, replaceable per deployment: keeper desk, liquidity desk, burn auction, surplus splitter, POL keeper (Uniswap v3 testnet flavour), reserve rewards |
-| `src/testnet/` | testnet-only contracts: wstETH with a faucet, test USDe and STACK, Chainlink and Chronicle mocks, issuance stub |
+| `src/periphery/` | ownerless periphery, replaceable per deployment: keeper desk, liquidity desk (band, bids, asks), interest splitter and issuance (the interest to the Stability Pool's depositors and the bids, in OCT), burn auction, surplus splitter, POL keeper (Uniswap v3 testnet flavour), reserve rewards |
+| `src/testnet/` | testnet-only contracts: wstETH with a faucet, test USDe and STACK, Chainlink and Chronicle mocks |
 | `script/Deploy.s.sol` | full deployment and wiring, writes `deployments/<chainId>.json` |
-| `test/` | Foundry tests (87): upstream smoke, interest index, collateral flows, price feed, reserve and fee sharing, succession, auto-repay, keeper desk, sinks, liquidity desk |
+| `test/` | Foundry tests (99): upstream smoke, interest index, collateral flows, price feed, reserve and fee sharing, succession, auto-repay and the yield share, keeper desk, sinks, liquidity desk, the interest route |
 | `docs/` | the testnet frontend (GitHub Pages), the playbook, the agent brief (`agent.md`, `llms.txt`, `.well-known/legacystack.json`) and the audit map |
 | `agent/` | a read-only MCP server against the current deployment and agent skills (see `agent/README.md`) |
 | `frontend/` | frontend source (viem, no framework), bundled into `docs/app.js` |
@@ -64,11 +64,14 @@ opens a small seed vault and parks 1 OCT in the Stability Pool so the pool never
 
 ## Design in one paragraph
 
-Borrowers deposit wstETH and mint OCT at a fixed 1.5% a year (global debt index; interest is minted to the
-buffer at every touch), 110% minimum collateral ratio, 0.5% mint fee, Liquity liquidations through the
+Borrowers deposit wstETH and mint OCT at a fixed 1.5% a year (global debt index; the interest is minted at
+every touch and paid half to the Stability Pool's depositors and half to the dollars resting under par in the
+market pool, in OCT), 110% minimum collateral ratio, 0.5% mint fee, Liquity liquidations through the
 Stability Pool. Redemptions (0.75% floor, 5,000 OCT minimum) are served by the Redemption Buffer first and
-reach user vaults only when it is empty; the buffer holds every fee and sells its OCT inventory back at par
-plus 0.5%, and it sets the debt ceiling ($1M + $100 per $1 in the pot). The oracle has no keys: when
+reach user vaults only when it is empty; the buffer holds the fees and the protocol's share of the staking
+yield (15% of a vault's yield, 10% with auto-repay on), sells its OCT inventory back at par plus 0.5%, and
+sets the debt ceiling ($1M + $100 per $1 in the pot). There are no STACK emissions: STACK is only bought back
+and burned from the reserve's surplus. The oracle has no keys: when
 Chainlink or Lido misbehave the protocol goes reduce-only (repay, add collateral, close and liquidate at the
 last good price stay open) and heals by itself. Succession: the owner names heirs; a year without an
 owner-key action plus thirty days of grace lets anyone settle the vault at par and push collateral, OCT and

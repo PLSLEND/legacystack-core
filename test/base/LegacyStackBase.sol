@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 
 /// Minimal ABI surface of the 0.6.11 contracts, used from 0.8 tests via deployCode.
 interface ITM {
-    function setAddresses(address,address,address,address,address,address,address,address,address,address,address) external;
+    function setAddresses(address,address,address,address,address,address,address,address,address,address,address,address) external;
+    function interestRecipientAddress() external view returns (address);
     function getEntireDebtAndColl(address) external view returns (uint debt, uint coll, uint pDebt, uint pColl);
     function getTroveDebt(address) external view returns (uint);
     function getTroveColl(address) external view returns (uint);
@@ -20,6 +21,7 @@ interface ITM {
     function getEntireSystemDebt() external view returns (uint);
     function getEntireSystemColl() external view returns (uint);
     function getCurrentICR(address, uint) external view returns (uint);
+    function getTCR(uint) external view returns (uint);
     function getRedemptionRateWithDecay() external view returns (uint);
     function getRedemptionRate() external view returns (uint);
     function baseRate() external view returns (uint);
@@ -121,6 +123,8 @@ contract LegacyStackBase is Test {
     uint constant GAS_COMP = 200e18;
 
     function _bootstrapPeriod() internal virtual pure returns (uint) { return 0; }
+    /// Where TroveManager mints the interest: the buffer by default (the code before #177); the routing tests override it
+    function _interestRecipient() internal virtual returns (address) { return buffer; }
 
     function setUp() public virtual {
         tm  = deployCode("TroveManager.sol:TroveManager", abi.encode(_bootstrapPeriod()));
@@ -140,7 +144,7 @@ contract LegacyStackBase is Test {
         registry = deployCode("SuccessionRegistry.sol:SuccessionRegistry", abi.encode(uint(10), uint(0.02 ether)));
 
         ISorted(st).setParams(1_000_000, tm, bo);
-        ITM(tm).setAddresses(bo, ap, dp, sp, gas, csp, pf, oct, st, buffer, registry);
+        ITM(tm).setAddresses(bo, ap, dp, sp, gas, csp, pf, oct, st, buffer, registry, _interestRecipient());
         IBO(bo).setAddresses(tm, ap, dp, sp, gas, csp, pf, st, oct, buffer, wst, registry);
         ISP(sp).setAddresses(bo, tm, ap, oct, st, pf, issuance, wst, registry);
         IPoolV(ap).setAddresses(bo, tm, sp, dp, csp, wst);

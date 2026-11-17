@@ -10,9 +10,11 @@ const CHAINS = {
 };
 const WAD = 10n ** 18n;
 const MCR = 11n * 10n ** 17n;
+const CCR = 15n * 10n ** 17n;
 const GAS_COMP = 200n * WAD;
 const MIN_NET_DEBT = 1800n * WAD;
 const MAX_FEE = 5n * 10n ** 16n; // the protocol's own cap on the mint fee (5%)
+const OFFER_PREMIUM = 5n * 10n ** 15n; // the reserve's standing offer: par plus 0.5%
 const Q96 = 2n ** 96n;
 
 let D = null;           // deployment addresses
@@ -21,11 +23,13 @@ let pub = null;         // public client
 let wallet = null;      // wallet client
 let me = null;          // connected address
 let price = 0n; let healthy = true;
+let rate = WAD;         // Lido's stETH per wstETH: one wstETH is worth this many ETH
 let refreshTimer = null;
-let heirRowCount = 0;
+let planPrefilled = false;   // the succession form shows the plan on record once, then the person edits it
 let allTroves = [];     // the sorted list, riskiest first, for "debt in front of you"
 let desk = null;        // last Keeper desk read
 let hasVault = false; let hasPlan = false;
+let shareBps = 1500n; let shareAutoBps = 1000n;   // the protocol's share of the staking yield, read from the chain
 const bal = { eth: 0n, wst: 0n, oct: 0n, usde: 0n, coll: 0n, debt: 0n, spDep: 0n, rdDep: 0n, inv: 0n };   // what the Max buttons read
 let isZero = (a) => !a || a === zeroAddress;
 
@@ -50,6 +54,11 @@ const looksLikeAddress = (s) => isAddress((s || '').trim(), { strict: false });
 const icrOf = (coll, debt) => debt === 0n ? 0n : (coll * price) / debt;
 const liqPrice = (coll, debt) => coll === 0n ? 0n : (debt * MCR) / coll;
 const usd = (wad, digits = 0) => `$${fmt(wad, digits)}`;
+// two prices, one asset: a wstETH amount in ETH, and a price per wstETH as a price per ETH
+const inEth = (wst) => (wst * rate) / WAD;
+const perEth = (pricePerWst) => rate === 0n ? 0n : (pricePerWst * WAD) / rate;
+const bothPrices = (p) => `${usd(p)} per wstETH · ${usd(perEth(p))} per ETH`;
+const rateStr = () => Number(formatUnits(rate, 18)).toFixed(4);
 
 function toast(msg, kind = '') {
   const t = $('toast'); t.textContent = msg; t.className = `toast ${kind}`;
@@ -64,7 +73,7 @@ function explain(err) {
   }
   if (!reason) reason = (err && err.message) ? err.message.split('\n')[0] : String(err);
   // the contracts speak in plain sentences; strip their prefixes
-  return reason.replace(/^(BorrowerOps|TroveManager|TM|StabilityPool|RedemptionBuffer|SuccessionRegistry|KeeperDesk|LUSD|PriceFeed): /, '');
+  return reason.replace(/^(BorrowerOps|TroveManager|TM|StabilityPool|RedemptionBuffer|SuccessionRegistry|KeeperDesk|LiquidityDesk|LUSD|PriceFeed): /, '');
 }
 async function send(label, fn) {
   if (!wallet || !me) { toast('Connect a wallet first.', 'bad'); return null; }
@@ -140,8 +149,11 @@ async function networkBadge() {
 // ---------- refresh ----------
 async function refresh() {
   try {
-    [price, healthy] = await read(D.priceFeed, A.priceFeedAbi, 'peek');
+    [[price, healthy], rate] = await Promise.all([read(D.priceFeed, A.priceFeedAbi, 'peek'), read(D.wstETH, A.wstAbi, 'stEthPerToken')]);
     $('s-price').textContent = usd(price);
+    $('s-eth-price').textContent = usd(perEth(price));
+    $('s-rate').textContent = `1 wstETH = ${rateStr()} ETH`;
+    $('rate-x').textContent = rateStr(); $('rate-x2').textContent = rateStr(); $('wz-rate').textContent = rateStr();
     const [reduceOnly, windDown, borrowPrice] = await Promise.all([
       read(D.priceFeed, A.priceFeedAbi, 'isReduceOnly'), read(D.priceFeed, A.priceFeedAbi, 'isWindDown').catch(() => false), read(D.priceFeed, A.priceFeedAbi, 'lowerOfMarket', [price]).catch(() => price),
     ]);
@@ -162,7 +174,7 @@ async function refreshSystem() {
     read(D.troveManager, A.troveManagerAbi, 'getRedemptionRateWithDecay'),
     read(D.troveManager, A.troveManagerAbi, 'currentRateIndex'),
   ]);
-  $('y-coll').textContent = `${fmt(coll, 2, 'wstETH')} (${usd((coll * price) / WAD)})`;
+  $('y-coll').textContent = `${fmt(coll, 2, 'wstETH')} (${fmt(inEth(coll), 1)} ETH, ${usd((coll * price) / WAD)})`;
   $('y-debt').textContent = fmt(debt, 0, 'OCT');
   $('y-tcr').textContent = pct(icrOf(coll, debt));
   $('y-count').textContent = count.toString();
@@ -175,6 +187,11 @@ async function refreshSystem() {
     const dec = await read(D.ethUsdAggregator, A.aggregatorAbi, 'decimals');
     $('y-eth').textContent = `$${Number(formatUnits(answer, dec)).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
   } catch { $('y-eth').textContent = '—'; }
+  // where the interest went (#177): the pool's depositors, the desk's bids, the reserve when nobody was there
+  if (D.interestSplitter && !isZero(D.interestSplitter)) {
+    const [toPool, toDesk, toBuffer, pending] = await Promise.all(['totalToPool', 'totalToDesk', 'totalToBuffer', 'pending'].map((f) => read(D.interestSplitter, A.interestSplitterAbi, f).catch(() => 0n)));
+    $('y-interest').textContent = `${fmt(toPool, 0)} OCT to the pool's depositors · ${fmt(toDesk, 0)} to the bids · ${fmt(toBuffer, 0)} to the reserve${pending > 0n ? ` · ${fmt(pending, 0)} waiting for the next housekeeping press` : ''}`;
+  } else { $('y-interest').textContent = 'the interest goes to the reserve on this deployment'; }
   // the whole sorted list (riskiest first); the testnet book is small, a production page would page it
   const n = Number(count);
   allTroves = n ? await read(D.multiTroveGetter, A.multiTroveGetterAbi, 'getMultipleSortedTroves', [-1n, BigInt(Math.min(n, 200))]) : [];
@@ -251,7 +268,7 @@ async function refreshDeposit() {
   $('rd-mine').textContent = `${fmt(mine, 4)} wstETH`; bal.rdDep = mine;
   $('rd-unlock').textContent = mine > 0n ? (Number(until) * 1000 <= Date.now() ? 'unlocked' : date(until)) : '—';
   $('rd-points').textContent = `${fmt(pts / 86400n, 3)} wstETH-days`;
-  const [claimable, fees, shareBps] = await Promise.all([
+  const [claimable, fees, shareBpsDep] = await Promise.all([
     isZero(D.reserveRewards) ? 0n : read(D.reserveRewards, A.rewardsAbi, 'claimable', [me]),
     read(D.redemptionBuffer, A.bufferAbi, 'feesOf', [me]).catch(() => 0n),
     read(D.redemptionBuffer, A.bufferAbi, 'depositorsShareBps').catch(() => 0n),
@@ -271,48 +288,88 @@ async function refreshDeposit() {
       $('btn-payout').disabled = !payable;
     }
   }
-  $('rd-share').textContent = shareBps === 0n ? 'no deposits yet' : `${(Number(shareBps) / 100).toFixed(1)}% of each fee`;
+  $('rd-share').textContent = shareBpsDep === 0n ? 'no deposits yet' : `${(Number(shareBpsDep) / 100).toFixed(1)}% of each fee`;
 }
 
-// ---------- liquidity through the protocol ----------
+// ---------- liquidity through the protocol: the band, the bids and the asks (#177) ----------
+let deskState = { octIs0: true, tick: 0, bidOk: false, askOk: false, band: 0n, bid: 0n, ask: 0n };
 async function refreshLiquidityDesk() {
   const box = $('lp-box');
   if (!D.liquidityDesk || isZero(D.liquidityDesk)) { box.classList.add('hidden'); return; }
   box.classList.remove('hidden');
-  if (!me) { $('lp-mine').textContent = '—'; $('lp-owed').textContent = '—'; $('lp-usde').textContent = '—'; return; }
-  const [tokenId, liq, [owedOct, owedUsde], usde, par] = await Promise.all([
-    read(D.liquidityDesk, A.liquidityDeskAbi, 'positionOf', [me]),
-    read(D.liquidityDesk, A.liquidityDeskAbi, 'liquidityOf', [me]),
-    read(D.liquidityDesk, A.liquidityDeskAbi, 'owedOf', [me]),
-    read(D.usde, A.erc20Abi, 'balanceOf', [me]),
-    read(D.liquidityDesk, A.liquidityDeskAbi, 'atPar'),
+  const [tick, octIs0, par, bidOk, askOk] = await Promise.all([
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'currentTick'), read(D.liquidityDesk, A.liquidityDeskAbi, 'octIsToken0'),
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'atPar'), read(D.liquidityDesk, A.liquidityDeskAbi, 'bidPlaceable'), read(D.liquidityDesk, A.liquidityDeskAbi, 'askPlaceable'),
   ]);
-  bal.usde = usde;
-  $('lp-mine').textContent = tokenId === 0n ? 'none' : `position #${tokenId} · liquidity ${fmt(liq, 0)} · in your succession plan`;
-  $('lp-owed').textContent = tokenId === 0n ? '—' : `${fmt(owedOct, 4)} OCT + ${fmt(owedUsde, 4)} USDe, at least`;
-  $('lp-usde').textContent = fmt(usde, 2);
-  $('btn-lp-collect').disabled = tokenId === 0n;
-  $('btn-lp-withdraw').disabled = tokenId === 0n;
+  Object.assign(deskState, { octIs0, tick: Number(tick), bidOk, askOk });
+  // the pool's price of OCT in USDe, from the tick: 1.0001^tick is token1 per token0
+  const octPrice = octIs0 ? Math.pow(1.0001, Number(tick)) : Math.pow(1.0001, -Number(tick));
+  $('lp-tick').textContent = `OCT at ${octPrice.toFixed(4)} USDe · ${bidOk ? 'bids can be placed' : 'OCT is under par: a bid would fill at once, wait'} · ${askOk ? 'asks can be placed' : 'OCT is above the offer: an ask would fill at once, wait'}`;
+  $('btn-bid').disabled = !bidOk; $('btn-ask').disabled = !askOk; $('btn-lp-add').disabled = !par;
   const p = $('lp-preview'); p.className = 'preview' + (par ? '' : ' warn');
   p.textContent = par ? 'Equal values of both work best; what the pool cannot place comes straight back.' : 'The pool is more than 2% off par: the desk waits until it is back, so nobody provides at a bad price.';
+  if (!me) { ['lp-mine', 'lp-owed', 'lp-income', 'lp-usde'].forEach((id) => { $(id).textContent = '—'; }); return; }
+  const [[band, bid, ask], [owedOct, owedUsde], income, usde, bandOct, askOct, bidLiq] = await Promise.all([
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'positionsOf', [me]),
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'owedOf', [me]),
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'rewardOf', [me]),
+    read(D.usde, A.erc20Abi, 'balanceOf', [me]),
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'octOf', [me]),
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'askOctOf', [me]),
+    read(D.liquidityDesk, A.liquidityDeskAbi, 'bidLiquidityOf', [me]),
+  ]);
+  Object.assign(deskState, { band, bid, ask });
+  bal.usde = usde;
+  const parts = [];
+  if (band) parts.push(`both sides #${band} (${fmt(bandOct, 0)} OCT placed)`);
+  if (bid) parts.push(`bid #${bid} (liquidity ${fmt(bidLiq, 0)})`);
+  if (ask) parts.push(`ask #${ask} (${fmt(askOct, 0)} OCT resting)`);
+  $('lp-mine').textContent = parts.length ? `${parts.join(' · ')} · in your succession plan` : 'none';
+  $('lp-owed').textContent = parts.length ? `${fmt(owedOct, 4)} OCT + ${fmt(owedUsde, 4)} USDe, at least` : '—';
+  $('lp-income').textContent = bid ? `${fmt(income, 4)} OCT${income > 0n ? ' to claim' : ''}` : income > 0n ? `${fmt(income, 4)} OCT to claim` : '—';
+  $('lp-usde').textContent = fmt(usde, 2);
+  $('btn-lp-collect').disabled = parts.length === 0;
+  $('btn-lp-claim').disabled = income === 0n;
+  $('btn-lp-withdraw').disabled = !band;
+  $('btn-bid-withdraw').disabled = !bid;
+  $('btn-ask-withdraw').disabled = !ask;
+}
+async function deskAllowance(token, amount, name) {
+  if (amount === 0n) return true;
+  const allowance = await read(token, A.erc20Abi, 'allowance', [me, D.liquidityDesk]);
+  if (allowance >= amount) return true;
+  const rc = await send(`Approve ${name} for the liquidity desk`, () => write(token, A.erc20Abi, 'approve', [D.liquidityDesk, 2n ** 256n - 1n]));
+  return !!rc;
 }
 async function lpAdd(ev) {
   ev.preventDefault();
   if (!me) { toast('Connect a wallet first.', 'warn'); return; }
   const o = toWad($('lp-oct').value); const u = toWad($('lp-usde-in').value);
   if (o === 0n && u === 0n) { toast('Enter OCT, USDe or both.', 'warn'); return; }
-  for (const [token, amount, name] of [[D.oct, o, 'OCT'], [D.usde, u, 'USDe']]) {
-    if (amount === 0n) continue;
-    const allowance = await read(token, A.erc20Abi, 'allowance', [me, D.liquidityDesk]);
-    if (allowance < amount) { const rc = await send(`Approve ${name} for the liquidity desk`, () => write(token, A.erc20Abi, 'approve', [D.liquidityDesk, 2n ** 256n - 1n])); if (!rc) return; }
-  }
+  if (!(await deskAllowance(D.oct, o, 'OCT')) || !(await deskAllowance(D.usde, u, 'USDe'))) return;
   await send('Add liquidity', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'provide', [o, u]));
+}
+async function placeBid(ev) {
+  ev.preventDefault();
+  if (!me) { toast('Connect a wallet first.', 'warn'); return; }
+  const u = toWad($('bid-amount').value);
+  if (u === 0n) { toast('Enter the USDe for the bid.', 'warn'); return; }
+  if (!(await deskAllowance(D.usde, u, 'USDe'))) return;
+  await send('Place the bid', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'provideCounter', [u]));
+}
+async function placeAsk(ev) {
+  ev.preventDefault();
+  if (!me) { toast('Connect a wallet first.', 'warn'); return; }
+  const o = toWad($('ask-amount').value);
+  if (o === 0n) { toast('Enter the OCT for the ask.', 'warn'); return; }
+  if (!(await deskAllowance(D.oct, o, 'OCT'))) return;
+  await send('Place the ask', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'provideOct', [o]));
 }
 async function inheritPreviewRow(a) {
   const row = $('ex-lp-row');
   if (!D.liquidityDesk || isZero(D.liquidityDesk)) { row.classList.add('hidden'); return; }
-  const tokenId = await read(D.liquidityDesk, A.liquidityDeskAbi, 'positionOf', [addr(a)]).catch(() => 0n);
-  row.classList.toggle('hidden', tokenId === 0n);
+  const any = await read(D.liquidityDesk, A.liquidityDeskAbi, 'hasPositions', [addr(a)]).catch(() => false);
+  row.classList.toggle('hidden', !any);
 }
 
 async function refreshPoolAndVault() {
@@ -324,32 +381,45 @@ async function refreshPoolAndVault() {
   $('sp-total').textContent = fmt(total, 0, 'OCT');
   $('sp-share').textContent = supply > 0n ? pct((total * WAD) / supply) : '—';
   $('sp-coll').textContent = fmt(spColl, 4, 'wstETH');
+  // the pool's OCT income (#177): what the issuance contract has handed to the pool, and what waits for its next move
+  let issuancePending = 0n;
+  if (D.interestIssuance && !isZero(D.interestIssuance)) {
+    const [accounted, pending] = await Promise.all([read(D.interestIssuance, A.issuanceAbi, 'accounted').catch(() => 0n), read(D.interestIssuance, A.issuanceAbi, 'pending').catch(() => 0n)]);
+    issuancePending = pending;
+    $('sp-income-total').textContent = `${fmt(accounted, 2)} OCT booked${pending > 0n ? ` · ${fmt(pending, 2)} arriving with the pool's next move` : ''}`;
+  } else { $('sp-income-total').textContent = 'none on this deployment'; }
   if (!me) return;
-  const [eth, wst, oct, status, [debt, coll], dep, gain, surplus, allowance] = await Promise.all([
+  const [eth, wst, oct, status, [debt, coll], dep, gain, income, surplus, allowance] = await Promise.all([
     pub.getBalance({ address: me }),
     read(D.wstETH, A.erc20Abi, 'balanceOf', [me]), read(D.oct, A.erc20Abi, 'balanceOf', [me]),
     read(D.troveManager, A.troveManagerAbi, 'getTroveStatus', [me]),
     read(D.troveManager, A.troveManagerAbi, 'getEntireDebtAndColl', [me]),
     read(D.stabilityPool, A.stabilityPoolAbi, 'getCompoundedLUSDDeposit', [me]),
     read(D.stabilityPool, A.stabilityPoolAbi, 'getDepositorETHGain', [me]),
+    read(D.stabilityPool, A.stabilityPoolAbi, 'getDepositorLQTYGain', [me]).catch(() => 0n),
     read(D.collSurplusPool, A.collSurplusPoolAbi, 'getCollateral', [me]),
     read(D.wstETH, A.erc20Abi, 'allowance', [me, D.borrowerOperations]),
   ]);
   $('s-eth').textContent = fmt(eth, 4);
   $('s-wst').textContent = fmt(wst, 3);
+  $('s-wst-eth').textContent = `= ${fmt(inEth(wst), 3)} ETH, ${usd((wst * price) / WAD)}`;
   $('s-oct').textContent = fmt(oct, 2);
+  $('wz-bal-eth').textContent = fmt(eth, 4); $('wz-bal-wst').textContent = fmt(wst, 4);
   Object.assign(bal, { eth, wst, oct, spDep: dep, coll: Number(status) === 1 ? coll : 0n, debt: Number(status) === 1 ? debt : 0n });
   $('sp-mine').textContent = fmt(dep, 2, 'OCT');
   $('sp-mine-share').textContent = total > 0n ? pct((dep * WAD) / total) : '—';
   $('sp-gain').textContent = fmt(gain, 4, 'wstETH');
+  // the income already booked to you, plus your share of what waits in the issuance contract
+  const incomeSoon = total > 0n ? (issuancePending * dep) / total : 0n;
+  $('sp-income').textContent = dep > 0n || income > 0n ? `${fmt(income, 4)} OCT${incomeSoon > 0n ? ` + ${fmt(incomeSoon, 4)} arriving` : ''}` : '—';
   $('btn-approve').classList.toggle('hidden', allowance > 10n ** 30n);
   const names = ['none', 'open', 'closed by you', 'liquidated', 'redeemed', 'closed by succession'];
   $('v-status').textContent = names[Number(status)] || '—';
   hasVault = Number(status) === 1;
-  $('v-coll').textContent = hasVault ? fmt(coll, 4, 'wstETH') : '—';
+  $('v-coll').textContent = hasVault ? `${fmt(coll, 4, 'wstETH')} (${fmt(inEth(coll), 4)} ETH, ${usd((coll * price) / WAD)})` : '—';
   $('v-debt').textContent = hasVault ? fmt(debt, 2, 'OCT') : '—';
   $('v-icr').textContent = hasVault ? pct(icrOf(coll, debt)) : '—';
-  $('v-liq').textContent = hasVault ? `${usd(liqPrice(coll, debt))} per wstETH` : '—';
+  $('v-liq').textContent = hasVault ? bothPrices(liqPrice(coll, debt)) : '—';
   if (hasVault) {
     // redemptions take the reserve first, then vaults from the lowest ratio up: everything below you is "in front"
     const mine = icrOf(coll, debt);
@@ -360,13 +430,18 @@ async function refreshPoolAndVault() {
   $('btn-close').disabled = !hasVault;
   $('btn-claim-surplus').classList.toggle('hidden', surplus === 0n);
   $('form-auto').classList.toggle('hidden', !hasVault);
+  $('form-repay-reserve').classList.toggle('hidden', !hasVault);
   if (hasVault) {
     const [cadence, lastSkim] = await read(D.borrowerOperations, A.borrowerOperationsAbi, 'autoRepay', [me]);
     const names = ['off', 'monthly', 'quarterly', 'yearly'];
     $('v-auto').textContent = cadence ? `${names[cadence]} · last run ${lastSkim ? date(lastSkim) : 'never'}` : 'off';
     if ($('auto-cadence').value !== String(cadence) && document.activeElement !== $('auto-cadence')) $('auto-cadence').value = String(cadence);
     const yieldWst = isZero(D.keeperDesk) ? 0n : await read(D.keeperDesk, A.keeperDeskAbi, 'skimmable', [me]);
-    $('v-yield').textContent = yieldWst > 0n ? `${fmt(yieldWst, 6)} wstETH ≈ ${usd((yieldWst * price) / WAD)}` : 'none yet';
+    const share = cadence ? shareAutoBps : shareBps;
+    $('v-yield').textContent = yieldWst > 0n
+      ? `${fmt(yieldWst, 6)} wstETH ≈ ${usd((yieldWst * price) / WAD)} · the protocol's share is ${Number(share) / 100}%, the rest ${cadence ? 'repays your debt on the schedule' : 'stays yours'}`
+      : `none yet · the protocol's share will be ${Number(share) / 100}% of it`;
+    rrPreview().catch(() => {});
   } else { $('v-auto').textContent = '—'; $('v-yield').textContent = '—'; }
 }
 
@@ -397,33 +472,44 @@ async function refreshSuccession() {
     if (escrowW > 0n) await send('Claim wstETH escrow', () => write(D.successionRegistry, A.registryAbi, 'claimEscrow', [D.wstETH]));
     if (escrowO > 0n) await send('Claim OCT escrow', () => write(D.successionRegistry, A.registryAbi, 'claimEscrow', [D.oct]));
   };
-  if (accounts.length && heirRowCount === 0) { accounts.forEach((a, i) => addHeirRow(a, (bps[i] / 100).toString())); if (fallback !== zeroAddress) $('in-fallback').value = fallback; }
+  if (accounts.length && !planPrefilled) { planPrefilled = true; $('heir-rows').innerHTML = ''; accounts.forEach((a, i) => addHeirRow(PLAN_MAIN, a, (bps[i] / 100).toString())); if (fallback !== zeroAddress) $('in-fallback').value = fallback; }
 }
 
-// the stepped flow: no vault -> steps 1-2; vault without a plan -> step 3 (the heir alert); both -> adjust + invitations
+// the flow after connecting: no vault -> the opening window; a vault without a plan -> the heir alert; both -> adjust + invitations
+let planSkipped = false;
 async function refreshFlow() {
   const connected = !!me;
-  $('form-open').classList.toggle('hidden', connected && hasVault);
+  $('open-intro').classList.toggle('hidden', connected && hasVault);
   $('form-adjust').classList.toggle('hidden', !(connected && hasVault));
-  $('steps').classList.toggle('hidden', connected && hasVault && hasPlan);
   $('form-title').textContent = connected && hasVault ? 'Adjust your vault' : 'Open a vault';
-  const stepNow = !(connected && hasVault) ? currentStep : 3;
-  document.querySelectorAll('.step').forEach((el) => {
-    const n = Number(el.dataset.step);
-    el.classList.toggle('is-current', n === stepNow);
-    el.classList.toggle('is-done', n < stepNow || (n === 3 && hasPlan));
-  });
   const needsPlan = connected && hasVault && !hasPlan;
   $('plan-alert').classList.toggle('hidden', !needsPlan);
   $('btn-skip-plan').classList.toggle('hidden', !needsPlan);
   $('invite').classList.toggle('hidden', !(connected && hasVault && (hasPlan || planSkipped)));
+  if (connected && hasVault) adjustPreview();
 }
-let currentStep = 1; let planSkipped = false;
-function showStep(n) {
-  currentStep = n;
-  $('pane-1').classList.toggle('hidden', n !== 1);
-  $('pane-2').classList.toggle('hidden', n !== 2);
-  document.querySelectorAll('.step').forEach((el) => { const k = Number(el.dataset.step); el.classList.toggle('is-current', k === n); el.classList.toggle('is-done', k < n); });
+
+// ---------- the live gauge: ratio, value, liquidation price in both units ----------
+// Draws the ratio on a track from 100% to 300%: red under 110%, amber to 150%, green beyond.
+function renderGauge(el, coll, debt, note = '') {
+  if (coll === 0n || debt === 0n) { el.innerHTML = ''; el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  const icr = icrOf(coll, debt);
+  const ratio = Number(icr) / 1e16;                               // in percent
+  const pos = Math.max(0, Math.min(100, (ratio - 100) / 2));      // 100% -> 0, 300% -> 100
+  const tone = icr < MCR ? 'risk' : icr < CCR ? 'warn' : 'ok';
+  const liq = liqPrice(coll, debt);
+  const drop = price > 0n && liq < price ? Number(((price - liq) * 10000n) / price) / 100 : 0;
+  const value = (coll * price) / WAD;
+  const tick = (p, label) => `<div class="gauge-tick" style="left:${p}%"><span>${label}</span></div>`;
+  el.innerHTML = `
+    <div class="gauge-track">${tick(5, '110%')}${tick(25, '150%')}${tick(50, '200%')}${tick(100, '300%+')}<div class="gauge-needle" style="left:${pos}%"><span>${pct(icr)}</span></div></div>
+    <div class="gauge-figures">
+      <div><span class="gl">Collateral</span><span class="gv">${fmt(coll, 4)} wstETH<small>${fmt(inEth(coll), 4)} ETH · ${usd(value)}</small></span></div>
+      <div><span class="gl">Debt</span><span class="gv">${fmt(debt, 2)} OCT<small>${note || 'incl. the fee and the 200 OCT liquidation reserve'}</small></span></div>
+      <div class="${tone}"><span class="gl">Collateral ratio</span><span class="gv">${pct(icr)}<small>${icr < MCR ? 'under the 110% floor' : icr < CCR ? 'allowed; a thin margin' : 'a comfortable margin'}</small></span></div>
+      <div class="${tone}"><span class="gl">Liquidation price</span><span class="gv">${usd(liq)}<small>per wstETH · ${usd(perEth(liq))} per ETH · a ${drop.toFixed(1)}% drop</small></span></div>
+    </div>`;
 }
 
 // ---------- Keeper desk ----------
@@ -453,7 +539,7 @@ async function runDesk(category) {
     if (extra && !looksLikeAddress(extra)) { toast('That is not an address.', 'bad'); return; }
     exe = desk ? [...desk.executable] : []; skim = desk ? [...desk.skimmable] : [];
     if (extra && !exe.map((a) => a.toLowerCase()).includes(extra.toLowerCase())) exe.push(addr(extra));
-    label = 'Settle and auto-repay'; if (!exe.length && !skim.length) { toast('No estate is due and no auto-repay is due.', 'warn'); return; }
+    label = 'Settle and skim'; if (!exe.length && !skim.length) { toast('No estate is due and no yield is worth skimming.', 'warn'); return; }
   }
   if (category === 'tend') { tend = true; label = 'Reserve housekeeping'; }
   await send(label, () => writePadded(D.keeperDesk, A.keeperDeskAbi, 'run', [liq, exe, skim, tend]));
@@ -470,6 +556,7 @@ async function executePreview() {
 }
 
 // ---------- market ----------
+let marketOctPrice = 0n;   // OCT in USDe, 18 decimals, from the pool
 async function refreshMarket() {
   const sec = $('market');
   if (isZero(D.octUsdePool)) { sec.classList.add('hidden'); return; }
@@ -485,6 +572,7 @@ async function refreshMarket() {
     const p1in0 = (sqrtP * sqrtP * WAD) / (Q96 * Q96);
     const octIs0 = t0.toLowerCase() === D.oct.toLowerCase();
     const octPrice = octIs0 ? p1in0 === 0n ? 0n : (WAD * WAD) / p1in0 : p1in0;
+    marketOctPrice = octPrice;
     $('m-price').textContent = `${Number(formatUnits(octPrice, 18)).toFixed(4)} USDe`;
     const diff = Number(formatUnits(octPrice, 18)) - 1;
     $('m-par').textContent = `${diff >= 0 ? '+' : ''}${(diff * 100).toFixed(2)}%`;
@@ -497,53 +585,185 @@ async function refreshMarket() {
   } catch (e) { console.error(e); $('m-price').textContent = '—'; }
 }
 
-// ---------- vault forms ----------
+// ---------- the opening window (four steps) ----------
+let wizStep = 1; let heirsSkipped = false;
+function openWizard() {
+  if (!me) { toast('Connect a wallet first.', 'warn'); return; }
+  heirsSkipped = false;
+  if ($('wz-heir-rows').children.length === 0) addHeirRow(PLAN_WIZ);
+  showStep(1);
+  $('wizard').showModal();
+}
+function showStep(n) {
+  wizStep = n;
+  document.querySelectorAll('#form-wizard .wz-pane').forEach((p) => p.classList.toggle('hidden', Number(p.dataset.pane) !== n));
+  document.querySelectorAll('#wz-steps .step').forEach((el) => { const k = Number(el.dataset.step); el.classList.toggle('is-current', k === n); el.classList.toggle('is-done', k < n); });
+  if (n === 4) reviewWizard();
+  $('form-wizard').scrollTop = 0;
+}
+function wizardNext(n) {
+  const coll = toWad($('in-coll').value); const debt = toWad($('in-debt').value);
+  if (n >= 2 && coll === 0n) { toast('Enter the collateral first.', 'bad'); showStep(1); return; }
+  if (n >= 2 && coll > bal.wst) { toast(`You hold ${fmt(bal.wst, 4)} wstETH; convert ETH first or deposit less.`, 'bad'); showStep(1); return; }
+  if (n >= 3 && debt < MIN_NET_DEBT) { toast('The minimum loan is 1,800 OCT.', 'bad'); showStep(2); return; }
+  if (n >= 3 && icrOf(coll, debt + debt / 200n + GAS_COMP) < MCR) { toast('That loan would start under the 110% floor.', 'bad'); showStep(2); return; }
+  if (n === 4) {
+    const { accounts, bps } = readPlan(PLAN_WIZ);
+    if (accounts.length) {
+      if (accounts.some((a) => !looksLikeAddress(a)) || bps.reduce((a, b) => a + b, 0) !== 10000) { toast('Check the heirs and the shares, or skip the plan for now.', 'bad'); return; }
+      const fb = $('wz-fallback').value.trim();
+      if (fb && !looksLikeAddress(fb)) { toast('The fallback heir is not an address.', 'bad'); return; }
+      heirsSkipped = false;
+    } else { heirsSkipped = true; }
+  }
+  showStep(n);
+}
+function zapPreview() {
+  const eth = toWad($('zap-amount').value); const p = $('zap-preview');
+  if (eth === 0n) { p.textContent = 'Enter ETH to see how much wstETH it becomes.'; return; }
+  const wst = rate === 0n ? 0n : (eth * WAD) / rate;
+  p.textContent = `${fmt(eth, 4)} ETH becomes ${fmt(wst, 4)} wstETH (worth the same, ${usd((wst * price) / WAD)}): fewer tokens, each worth ${rateStr()} ETH.`;
+}
 function collPreview() {
   const coll = toWad($('in-coll').value); const p = $('coll-preview'); p.className = 'preview';
-  if (coll === 0n) { p.textContent = 'Enter an amount to see what it can back.'; return; }
+  if (coll === 0n) { p.textContent = 'Enter an amount to see what it is worth and what it can back.'; return; }
   const value = (coll * price) / WAD;
   const max = (value * WAD) / MCR;            // at exactly 110%, not advisable
   const safe = (value * WAD) / (2n * WAD);    // at 200%
-  p.textContent = `Worth ${usd(value)} today. It can back at most ${fmt(max, 0)} OCT at the 110% floor; a comfortable line is around ${fmt(safe, 0)} OCT (200%).`;
+  p.textContent = `${fmt(coll, 4)} wstETH = ${fmt(inEth(coll), 4)} ETH, worth ${usd(value)} today. It can back at most ${fmt(max, 0)} OCT at the 110% floor; a comfortable line is around ${fmt(safe, 0)} OCT (200%).`;
+  if (me && coll > bal.wst) { p.textContent += ` You hold ${fmt(bal.wst, 4)} wstETH.`; p.className = 'preview warn'; }
 }
 function openPreview() {
   const coll = toWad($('in-coll').value); const debt = toWad($('in-debt').value);
   const p = $('open-preview'); p.className = 'preview';
-  if (coll === 0n || debt === 0n) { p.textContent = 'Enter amounts to see the ratio, the fee and the liquidation price.'; return; }
+  if (coll === 0n || debt === 0n) { p.textContent = 'Enter an amount to see the ratio, the fee and the liquidation price.'; renderGauge($('open-gauge'), 0n, 0n); return; }
   const fee = debt / 200n; const composite = debt + fee + GAS_COMP;
   const icr = icrOf(coll, composite);
+  renderGauge($('open-gauge'), coll, composite);
   const share = (x) => `${(Number(x * 10000n / composite) / 100).toFixed(1)}%`;
-  const lines = [`You receive ${fmt(debt, 2)} OCT (${share(debt)} of the total debt of ${fmt(composite, 2)} OCT). The reserve keeps the 0.5% mint fee, ${fmt(fee, 2)} OCT (${share(fee)}). 200 OCT (${share(GAS_COMP)}) is parked as liquidation reserve and returned when you close.`,
-    `Collateral ratio: ${pct(icr)}. Liquidation if wstETH falls under ${usd(liqPrice(coll, composite))} (now ${usd(price)}).`];
+  const lines = [`You receive ${fmt(debt, 2)} OCT (${share(debt)} of the total debt of ${fmt(composite, 2)} OCT). The reserve keeps the 0.5% mint fee, ${fmt(fee, 2)} OCT (${share(fee)}). 200 OCT (${share(GAS_COMP)}) is parked as liquidation reserve and returned when you close.`];
   if (debt < MIN_NET_DEBT) { lines.push('Minimum debt is 1,800 OCT.'); p.className = 'preview bad'; }
-  else if (icr < 15n * 10n ** 17n) { lines.push('Under 150%: allowed, but a 27% drop liquidates you. Consider a larger margin.'); p.className = 'preview warn'; }
+  else if (icr < MCR) { lines.push('Under the 110% floor: the vault cannot open like this.'); p.className = 'preview bad'; }
+  else if (icr < CCR) { lines.push(`Under 150%: allowed, but a ${(100 - Number(liqPrice(coll, composite) * 10000n / price) / 100).toFixed(1)}% drop liquidates you. Consider a larger margin.`); p.className = 'preview warn'; }
   p.textContent = lines.join('\n');
 }
-function adjustPreview() {
-  const p = $('adjust-preview'); p.className = 'preview';
-  const add = toWad($('adj-add-coll').value), wd = toWad($('adj-wd-coll').value), bor = toWad($('adj-borrow').value), rep = toWad($('adj-repay').value);
-  if (add > 0n && wd > 0n) { p.textContent = 'Choose either add or withdraw collateral, not both.'; p.className = 'preview bad'; return; }
-  if (bor > 0n && rep > 0n) { p.textContent = 'Choose either borrow or repay, not both.'; p.className = 'preview bad'; return; }
-  p.textContent = 'One collateral change and one debt change per transaction. Borrowing pays the 0.5% mint fee on the new amount.';
+function reviewWizard() {
+  const coll = toWad($('in-coll').value); const debt = toWad($('in-debt').value);
+  const fee = debt / 200n; const composite = debt + fee + GAS_COMP;
+  const cadence = Number($('open-cadence').value);
+  const cadences = ['no, I repay when I choose', 'yes, monthly', 'yes, quarterly', 'yes, yearly'];
+  const { accounts, bps } = heirsSkipped ? { accounts: [], bps: [] } : readPlan(PLAN_WIZ);
+  const fb = heirsSkipped ? '' : $('wz-fallback').value.trim();
+  const heirs = accounts.map((a, i) => `${short(a)} · ${(bps[i] / 100).toFixed(2)}%`);
+  $('wz-review').innerHTML = [
+    ['Collateral', `${fmt(coll, 4)} wstETH (${fmt(inEth(coll), 4)} ETH, ${usd((coll * price) / WAD)})`],
+    ['You receive', `${fmt(debt, 2)} OCT`],
+    ['Total debt', `${fmt(composite, 2)} OCT (loan + 0.5% fee + 200 OCT liquidation reserve)`],
+    ['Interest', '1.5% a year, fixed, no maturity'],
+    ['Auto-repay', cadences[cadence]],
+    ['Heirs', heirs.length ? heirs.join('<br>') + (fb ? `<br>fallback ${short(fb)}` : '') : 'none yet (set them later in the Succession section)'],
+  ].map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  renderGauge($('review-gauge'), coll, composite);
+  const txs = ['Approve wstETH for the vault (once)', 'Open the vault'];
+  if (cadence) txs.push(`Switch auto-repay on, ${cadences[cadence].replace('yes, ', '')}`);
+  if (heirs.length) txs.push('Save the heirs');
+  $('wz-txlist').innerHTML = txs.map((t) => `<li>${t}</li>`).join('');
+}
+async function runWizard(ev) {
+  ev.preventDefault();
+  if (wizStep !== 4) { wizardNext(wizStep + 1); return; }
+  const coll = toWad($('in-coll').value); const debt = toWad($('in-debt').value);
+  const items = [...$('wz-txlist').querySelectorAll('li')];
+  let i = 0;
+  const mark = (ok) => { if (items[i]) items[i].className = ok ? 'is-done' : ''; i++; if (items[i]) items[i].className = 'is-now'; };
+  const btn = $('wz-submit'); btn.disabled = true;
+  try {
+    if (items[0]) items[0].className = 'is-now';
+    const allowance = await read(D.wstETH, A.erc20Abi, 'allowance', [me, D.borrowerOperations]);
+    if (allowance < coll) { const rc = await send('Approve wstETH', () => write(D.wstETH, A.erc20Abi, 'approve', [D.borrowerOperations, 2n ** 256n - 1n])); if (!rc) return; }
+    mark(true);
+    const composite = debt + debt / 200n + GAS_COMP;
+    const [upper, lower] = await insertHints(nominalCR(coll, composite));
+    const rc = await send('Open vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'openTrove', [MAX_FEE, debt, upper, lower, coll]));
+    if (!rc) return;
+    mark(true);
+    const cadence = Number($('open-cadence').value);
+    if (cadence) { await send('Auto-repay from staking rewards', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'setAutoRepay', [cadence])); mark(true); }
+    let savedPlan = false;
+    if (!heirsSkipped) {
+      const { accounts, bps } = readPlan(PLAN_WIZ);
+      if (accounts.length) {
+        const fb = $('wz-fallback').value.trim();
+        const ok = await send('Save plan', () => write(D.successionRegistry, A.registryAbi, 'setPlan', [accounts.map(addr), bps, fb ? addr(fb) : zeroAddress]));
+        if (ok) { mark(true); savedPlan = true; }
+      }
+    }
+    $('wizard').close();
+    toast(savedPlan ? 'Your vault is open and your heirs are on record.' : 'Your vault is open. Name your heirs in the Succession section when you are ready.', 'ok');
+    document.getElementById(savedPlan ? 'app' : 'succession').scrollIntoView({ behavior: 'smooth' });
+  } finally { btn.disabled = false; }
 }
 async function zap() {
   const amount = toWad($('zap-amount').value);
   if (amount === 0n) { toast('Enter the ETH amount to convert.', 'bad'); return; }
   await send('Convert ETH to wstETH', () => wallet.sendTransaction({ account: me, to: D.wstETH, value: amount, chain: NET.chain }));
 }
-async function openVault(ev) {
+
+// ---------- adjusting, repaying from the reserve, auto-repay ----------
+function adjustPreview() {
+  const p = $('adjust-preview'); p.className = 'preview';
+  const add = toWad($('adj-add-coll').value), wd = toWad($('adj-wd-coll').value), bor = toWad($('adj-borrow').value), rep = toWad($('adj-repay').value);
+  if (add > 0n && wd > 0n) { p.textContent = 'Choose either add or withdraw collateral, not both.'; p.className = 'preview bad'; renderGauge($('adj-gauge'), 0n, 0n); return; }
+  if (bor > 0n && rep > 0n) { p.textContent = 'Choose either borrow or repay, not both.'; p.className = 'preview bad'; renderGauge($('adj-gauge'), 0n, 0n); return; }
+  const newColl = bal.coll + add - wd; const newDebt = bal.debt + bor + bor / 200n - rep;
+  if (bal.coll > 0n && (add || wd || bor || rep) && newColl >= 0n && newDebt > 0n) renderGauge($('adj-gauge'), newColl, newDebt, 'after this change');
+  else renderGauge($('adj-gauge'), bal.coll, bal.debt, 'as it stands');
+  p.textContent = 'One collateral change and one debt change per transaction. Borrowing pays the 0.5% mint fee on the new amount.';
+}
+async function adjustVault(ev) {
   ev.preventDefault();
-  const coll = toWad($('in-coll').value); const debt = toWad($('in-debt').value);
-  if (coll === 0n || debt === 0n) { toast('Enter both amounts.', 'bad'); return; }
-  const allowance = await read(D.wstETH, A.erc20Abi, 'allowance', [me, D.borrowerOperations]);
-  if (allowance < coll) { const rc = await send('Approve wstETH', () => write(D.wstETH, A.erc20Abi, 'approve', [D.borrowerOperations, 2n ** 256n - 1n])); if (!rc) return; }
-  const composite = debt + debt / 200n + GAS_COMP;
-  const [upper, lower] = await insertHints(nominalCR(coll, composite));
-  const rc = await send('Open vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'openTrove', [MAX_FEE, debt, upper, lower, coll]));
-  if (!rc) return;
-  const cadence = Number($('open-cadence').value);
-  if (cadence) await send('Auto-repay from staking rewards', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'setAutoRepay', [cadence]));
-  showStep(3); document.getElementById('succession').scrollIntoView({ behavior: 'smooth' });
+  const add = toWad($('adj-add-coll').value), wd = toWad($('adj-wd-coll').value), bor = toWad($('adj-borrow').value), rep = toWad($('adj-repay').value);
+  if ((add > 0n && wd > 0n) || (bor > 0n && rep > 0n)) { toast('One collateral change and one debt change at a time.', 'bad'); return; }
+  if (add === 0n && wd === 0n && bor === 0n && rep === 0n) { toast('Nothing to change.', 'bad'); return; }
+  if (add > 0n && !(await ensureAllowance(D.borrowerOperations, add, 'the vault'))) return;
+  const [debt, coll] = await read(D.troveManager, A.troveManagerAbi, 'getEntireDebtAndColl', [me]);
+  const isInc = bor > 0n; const change = isInc ? bor : rep;
+  const newColl = coll + add - wd; const newDebt = isInc ? debt + bor + bor / 200n : debt - rep;
+  const [upper, lower] = await insertHints(nominalCR(newColl, newDebt));
+  await send('Adjust vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'adjustTrove', [MAX_FEE, wd, change, isInc, upper, lower, add]));
+}
+// Repay with wstETH: the reserve's standing offer sells OCT at par plus 0.5%, the OCT repays the vault (LS_06 #99, #177)
+async function rrPreview() {
+  const amount = toWad($('rr-amount').value); const p = $('rr-preview'); p.className = 'preview';
+  if (amount === 0n) { p.textContent = `Enter an amount to see the cost in wstETH and ETH. The reserve holds ${fmt(bal.inv, 0)} OCT of inventory.`; return; }
+  const maxRepay = bal.debt > GAS_COMP + MIN_NET_DEBT ? bal.debt - GAS_COMP - MIN_NET_DEBT : 0n;
+  const quote = await read(D.redemptionBuffer, A.bufferAbi, 'quoteInventory', [amount, price]);
+  const lines = [`${fmt(amount, 2)} OCT costs ${fmt(quote, 5)} wstETH = ${fmt(inEth(quote), 5)} ETH (${usd((quote * price) / WAD)}, the oracle price plus 0.5%).`];
+  if (amount > bal.inv) { lines.push(`The reserve holds only ${fmt(bal.inv, 2)} OCT of inventory right now.`); p.className = 'preview bad'; }
+  else if (amount > maxRepay) { lines.push(`At most ${fmt(maxRepay, 2)} OCT can be repaid this way: the vault keeps the 1,800 OCT minimum. Use Close to repay everything.`); p.className = 'preview bad'; }
+  else if (quote > bal.wst) { lines.push(`You hold ${fmt(bal.wst, 4)} wstETH; convert ETH first.`); p.className = 'preview warn'; }
+  if (marketOctPrice > 0n) {
+    const mkt = Number(formatUnits(marketOctPrice, 18));
+    lines.push(mkt < 1.005 ? `The market pool sells OCT at ${mkt.toFixed(4)} USDe right now: cheaper than the reserve's 1.005 if you hold USDe (trade there, then repay in OCT).` : `The market pool sells OCT at ${mkt.toFixed(4)} USDe right now: the reserve's offer at 1.005 is the better price.`);
+  }
+  p.textContent = lines.join('\n');
+}
+async function repayFromReserve(ev) {
+  ev.preventDefault();
+  if (!hasVault) return;
+  const amount = toWad($('rr-amount').value);
+  if (amount === 0n) { toast('Enter the OCT to repay.', 'bad'); return; }
+  const maxRepay = bal.debt > GAS_COMP + MIN_NET_DEBT ? bal.debt - GAS_COMP - MIN_NET_DEBT : 0n;
+  if (amount > maxRepay) { toast('The vault keeps the 1,800 OCT minimum; use Close to repay everything.', 'bad'); return; }
+  if (amount > bal.inv) { toast('The reserve does not hold that much inventory right now.', 'bad'); return; }
+  const quote = await read(D.redemptionBuffer, A.bufferAbi, 'quoteInventory', [amount, price]);
+  const maxIn = (quote * 101n) / 100n;
+  if (!(await ensureAllowance(D.redemptionBuffer, maxIn, 'the reserve'))) return;
+  const bought = await send('Buy OCT from the reserve', () => write(D.redemptionBuffer, A.bufferAbi, 'buyInventory', [amount, maxIn]));
+  if (!bought) return;
+  const [debt, coll] = await read(D.troveManager, A.troveManagerAbi, 'getEntireDebtAndColl', [me]);
+  const [upper, lower] = await insertHints(nominalCR(coll, debt - amount));
+  await send('Repay the vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'repayLUSD', [amount, upper, lower]));
 }
 async function saveAutoRepay(ev) {
   ev.preventDefault();
@@ -551,52 +771,43 @@ async function saveAutoRepay(ev) {
 }
 async function skimNow() {
   if (!hasVault) return;
-  await send('Skim the staking yield', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'skimYield', [me, zeroAddress, zeroAddress]));
-}
-async function adjustVault(ev) {
-  ev.preventDefault();
-  const add = toWad($('adj-add-coll').value), wd = toWad($('adj-wd-coll').value), bor = toWad($('adj-borrow').value), rep = toWad($('adj-repay').value);
-  if ((add > 0n && wd > 0n) || (bor > 0n && rep > 0n)) { toast('One collateral change and one debt change at a time.', 'bad'); return; }
-  if (add === 0n && wd === 0n && bor === 0n && rep === 0n) { toast('Nothing to change.', 'bad'); return; }
-  const [debt, coll] = await read(D.troveManager, A.troveManagerAbi, 'getEntireDebtAndColl', [me]);
-  const isInc = bor > 0n; const change = isInc ? bor : rep;
-  const newColl = coll + add - wd; const newDebt = isInc ? debt + bor + bor / 200n : debt - rep;
-  const [upper, lower] = await insertHints(nominalCR(newColl, newDebt));
-  await send('Adjust vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'adjustTrove', [MAX_FEE, wd, change, isInc, upper, lower, add]));
+  await send('Sell the staking yield to the reserve', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'skimYield', [me, zeroAddress, zeroAddress]));
 }
 
-// ---------- succession forms ----------
-function addHeirRow(addr = '', share = '') {
-  heirRowCount++;
+// ---------- heirs: one set of rows in the succession box, one in the opening window ----------
+const PLAN_MAIN = { rows: 'heir-rows', preview: 'plan-preview', bar: 'meter-bar' };
+const PLAN_WIZ = { rows: 'wz-heir-rows', preview: 'wz-plan-preview', bar: 'wz-meter-bar' };
+function addHeirRow(plan, address = '', share = '') {
   const row = document.createElement('div'); row.className = 'heir-row';
-  row.innerHTML = `<label>Heir address<input type="text" class="heir-addr" placeholder="0x…" value="${addr}"></label><label>Share %<input type="number" class="heir-bps" step="0.01" min="0" max="100" value="${share}"></label><button type="button" class="x" title="remove">×</button>`;
-  row.querySelector('.x').addEventListener('click', () => { row.remove(); planPreview(); });
-  row.querySelectorAll('input').forEach((i) => i.addEventListener('input', planPreview));
-  $('heir-rows').appendChild(row);
-  planPreview();
+  row.innerHTML = `<label>Heir address<input type="text" class="heir-addr" placeholder="0x…" value="${address}"></label><label>Share %<input type="number" class="heir-bps" step="0.01" min="0" max="100" value="${share}"></label><button type="button" class="x" title="remove">×</button>`;
+  row.querySelector('.x').addEventListener('click', () => { row.remove(); planPreview(plan); });
+  row.querySelectorAll('input').forEach((i) => i.addEventListener('input', () => planPreview(plan)));
+  $(plan.rows).appendChild(row);
+  planPreview(plan);
 }
-function readPlan() {
-  const rows = [...document.querySelectorAll('.heir-row')];
+function readPlan(plan) {
+  // rows left entirely blank are ignored; a row with either field filled counts
+  const rows = [...$(plan.rows).querySelectorAll('.heir-row')].filter((r) => r.querySelector('.heir-addr').value.trim() || r.querySelector('.heir-bps').value.trim());
   const accounts = rows.map((r) => r.querySelector('.heir-addr').value.trim());
   const bps = rows.map((r) => Math.round(parseFloat(r.querySelector('.heir-bps').value || '0') * 100));
   return { accounts, bps };
 }
-function planPreview() {
-  const { accounts, bps } = readPlan();
+function planPreview(plan) {
+  const { accounts, bps } = readPlan(plan);
   const total = bps.reduce((a, b) => a + b, 0);
-  const p = $('plan-preview'); p.className = 'preview';
-  const bar = $('meter-bar');
+  const p = $(plan.preview); p.className = 'preview';
+  const bar = $(plan.bar);
   bar.style.width = `${Math.min(100, total / 100)}%`;
   bar.className = `meter-bar${total === 10000 ? ' full' : total > 10000 ? ' over' : ''}`;
   const bad = accounts.filter((a) => a && !looksLikeAddress(a));
   if (bad.length) { p.textContent = `Not an address: ${bad[0]}`; p.className = 'preview bad'; return; }
-  if (accounts.length === 0) { p.textContent = 'Add at least one heir.'; return; }
-  p.textContent = total === 10000 ? `${accounts.length} heir${accounts.length > 1 ? 's' : ''}, shares total 100%. Ready to save.` : `Shares total ${(total / 100).toFixed(2)}%; they must total exactly 100%.`;
+  if (accounts.length === 0 || accounts.every((a) => !a)) { p.textContent = plan === PLAN_WIZ ? 'Add at least one heir, or skip for now.' : 'Add at least one heir.'; return; }
+  p.textContent = total === 10000 ? `${accounts.length} heir${accounts.length > 1 ? 's' : ''}, shares total 100%. Ready.` : `Shares total ${(total / 100).toFixed(2)}%; they must total exactly 100%.`;
   if (total !== 10000) p.className = 'preview warn';
 }
 async function savePlan(ev) {
   ev.preventDefault();
-  const { accounts, bps } = readPlan();
+  const { accounts, bps } = readPlan(PLAN_MAIN);
   if (accounts.some((a) => !looksLikeAddress(a)) || bps.reduce((a, b) => a + b, 0) !== 10000) { toast('Check the heirs and the shares.', 'bad'); return; }
   const fb = $('in-fallback').value.trim();
   if (fb && !looksLikeAddress(fb)) { toast('The fallback heir is not an address.', 'bad'); return; }
@@ -634,7 +845,7 @@ async function buyPreview() {
   const amount = toWad($('buy-amount').value); const p = $('buy-preview');
   if (amount === 0n) { p.textContent = ''; return; }
   const quote = await read(D.redemptionBuffer, A.bufferAbi, 'quoteInventory', [amount, price]);
-  p.textContent = `Costs ${fmt(quote, 5)} wstETH (oracle price plus 0.5%).`;
+  p.textContent = `Costs ${fmt(quote, 5)} wstETH = ${fmt(inEth(quote), 5)} ETH (oracle price plus 0.5%).`;
 }
 async function buyInventory(ev) {
   ev.preventDefault();
@@ -666,8 +877,8 @@ async function withdrawReserve() {
 }
 async function buyLot() {
   const cost = await read(D.burnAuction, A.auctionAbi, 'cost');
-  const bal = await read(D.stack, A.erc20Abi, 'balanceOf', [me]);
-  if (bal < cost) { toast(`The lot costs ${fmt(cost, 2)} STACK; you hold ${fmt(bal, 2)}.`, 'bad'); return; }
+  const have = await read(D.stack, A.erc20Abi, 'balanceOf', [me]);
+  if (have < cost) { toast(`The lot costs ${fmt(cost, 2)} STACK; you hold ${fmt(have, 2)}.`, 'bad'); return; }
   const allowance = await read(D.stack, A.erc20Abi, 'allowance', [me, D.burnAuction]);
   if (allowance < cost) { const rc = await send('Approve STACK', () => write(D.stack, A.erc20Abi, 'approve', [D.burnAuction, 2n ** 256n - 1n])); if (!rc) return; }
   await send('Buy the lot', () => write(D.burnAuction, A.auctionAbi, 'buy', [(cost * 102n) / 100n]));
@@ -687,11 +898,15 @@ const MAX_RULES = {
   'adj-borrow':   () => { const room = (bal.coll * price) / SAFE; const v = room > bal.debt ? ((room - bal.debt) * 1000n) / 1005n : 0n; return { v, d: 0, why: 'what keeps the vault at 150%' }; },
   'adj-wd-coll':  () => { const need = price > 0n ? (bal.debt * SAFE) / price : bal.coll; return { v: bal.coll > need ? bal.coll - need : 0n, d: 4, why: 'what keeps the vault at 150%' }; },
   'adj-repay':    () => { const toMin = bal.debt > GAS_COMP + MIN_NET_DEBT ? bal.debt - GAS_COMP - MIN_NET_DEBT : 0n; return { v: toMin < bal.oct ? toMin : bal.oct, d: 18, why: 'down to the 1,800 OCT minimum; use Close vault to repay everything' }; },
+  'rr-amount':    () => { const toMin = bal.debt > GAS_COMP + MIN_NET_DEBT ? bal.debt - GAS_COMP - MIN_NET_DEBT : 0n; const afford = (((bal.wst * price) / WAD) * 1000n) / 1005n;
+                          let v = toMin < bal.inv ? toMin : bal.inv; if (afford < v) v = afford; return { v, d: 2, why: 'down to the minimum debt, within the inventory and what your wstETH buys' }; },
   'rd-amount':    () => ({ v: bal.oct, d: 18, why: 'your OCT' }),
   'sp-amount':    () => ({ v: bal.oct, d: 18, why: 'your OCT; an empty field withdraws the whole deposit' }),
   'buy-amount':   () => { const afford = (((bal.wst * price) / WAD) * 1000n) / 1005n; return { v: afford < bal.inv ? afford : bal.inv, d: 2, why: 'what your wstETH buys, up to the inventory' }; },
   'lp-oct':       () => ({ v: bal.oct, d: 18, why: 'your OCT' }),
   'lp-usde-in':   () => ({ v: bal.usde, d: 18, why: 'your USDe' }),
+  'bid-amount':   () => ({ v: bal.usde, d: 18, why: 'your USDe' }),
+  'ask-amount':   () => ({ v: bal.oct, d: 18, why: 'your OCT' }),
 };
 function wireMax() {
   for (const [id, rule] of Object.entries(MAX_RULES)) {
@@ -738,6 +953,8 @@ async function boot() {
     return;
   }
   pub = createPublicClient({ chain: NET.chain, transport: http(NET.rpc), pollingInterval: 2000 });
+  // the protocol's share of the staking yield, as the chain states it
+  Promise.all([read(D.borrowerOperations, A.borrowerOperationsAbi, 'SHARE_BPS'), read(D.borrowerOperations, A.borrowerOperationsAbi, 'SHARE_AUTO_BPS')]).then(([s, a]) => { shareBps = s; shareAutoBps = a; }).catch(() => {});
 
   const list = $('addr-list');
   for (const [k, v] of Object.entries(D)) {
@@ -750,23 +967,29 @@ async function boot() {
   $('btn-connect').addEventListener('click', connect);
   wireMax();
   document.querySelectorAll('[data-watch]').forEach((b) => b.addEventListener('click', () => watchAsset(b.dataset.watch)));
-  $('form-open').addEventListener('submit', openVault);
-  $('form-adjust').addEventListener('submit', adjustVault);
+  // the opening window
+  $('btn-open-wizard').addEventListener('click', openWizard);
+  $('wz-close').addEventListener('click', () => $('wizard').close());
+  $('form-wizard').addEventListener('submit', runWizard);
+  document.querySelectorAll('#form-wizard [data-next]').forEach((b) => b.addEventListener('click', () => wizardNext(Number(b.dataset.next))));
+  $('wz-skip-heirs').addEventListener('click', () => { heirsSkipped = true; showStep(4); });
+  $('wz-add-heir').addEventListener('click', () => addHeirRow(PLAN_WIZ));
+  $('zap-amount').addEventListener('input', zapPreview);
+  $('btn-zap').addEventListener('click', zap);
   $('in-coll').addEventListener('input', () => { collPreview(); openPreview(); });
   $('in-debt').addEventListener('input', openPreview);
+  // the open vault
+  $('form-adjust').addEventListener('submit', adjustVault);
   ['adj-add-coll', 'adj-wd-coll', 'adj-borrow', 'adj-repay'].forEach((id) => $(id).addEventListener('input', adjustPreview));
-  document.querySelectorAll('[data-next]').forEach((b) => b.addEventListener('click', () => {
-    const n = Number(b.dataset.next);
-    if (n === 2 && toWad($('in-coll').value) === 0n) { toast('Enter the collateral first.', 'bad'); return; }
-    showStep(n);
-  }));
-  $('btn-zap').addEventListener('click', zap);
+  $('form-repay-reserve').addEventListener('submit', repayFromReserve);
+  $('rr-amount').addEventListener('input', () => rrPreview().catch(() => {}));
   $('btn-close').addEventListener('click', () => send('Close vault', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'closeTrove')));
   $('btn-claim-surplus').addEventListener('click', () => send('Claim collateral', () => write(D.borrowerOperations, A.borrowerOperationsAbi, 'claimCollateral')));
   $('btn-faucet').addEventListener('click', () => send('Mint test wstETH', () => write(D.wstETH, A.wstAbi, 'mint', [me, 10n * WAD])));
   $('btn-faucet-usde').addEventListener('click', () => { if (isZero(D.usde)) { toast('No test USDe on this chain.', 'bad'); return; } send('Mint test USDe', () => write(D.usde, A.wstAbi, 'mint', [me, 10000n * WAD])); });
   $('btn-approve').addEventListener('click', () => send('Approve wstETH', () => write(D.wstETH, A.erc20Abi, 'approve', [D.borrowerOperations, 2n ** 256n - 1n])));
-  $('btn-add-heir').addEventListener('click', () => addHeirRow());
+  // succession
+  $('btn-add-heir').addEventListener('click', () => addHeirRow(PLAN_MAIN));
   $('form-plan').addEventListener('submit', savePlan);
   $('btn-skip-plan').addEventListener('click', () => { planSkipped = true; refreshFlow(); toast('Plan skipped. The alert stays until heirs are named.', 'warn'); });
   $('btn-prove').addEventListener('click', () => send('Proof of life', () => write(D.successionRegistry, A.registryAbi, 'proveLife')));
@@ -778,6 +1001,7 @@ async function boot() {
   $('btn-desk-liq').addEventListener('click', () => runDesk('liq'));
   $('btn-desk-tend').addEventListener('click', () => runDesk('tend'));
   $('ex-addr').addEventListener('input', () => executePreview().catch(() => {}));
+  // the reserve
   $('form-redeem').addEventListener('submit', redeem);
   $('form-buy').addEventListener('submit', buyInventory);
   $('buy-amount').addEventListener('input', () => buyPreview().catch(() => {}));
@@ -787,18 +1011,24 @@ async function boot() {
   $('btn-claim-stack').addEventListener('click', () => send('Claim STACK', () => write(D.reserveRewards, A.rewardsAbi, 'claim')));
   $('btn-claim-fees').addEventListener('click', () => send('Claim fees', () => write(D.redemptionBuffer, A.bufferAbi, 'claimFees')));
   $('btn-payout')?.addEventListener('click', () => send('Pay out the inherited deposit', () => write(D.redemptionBuffer, A.bufferAbi, 'finishPayout', [me])));
+  // the liquidity desk
   $('form-lp').addEventListener('submit', lpAdd);
-  $('btn-lp-collect').addEventListener('click', () => send('Collect fees', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'collect')));
-  $('btn-lp-withdraw').addEventListener('click', () => send('Withdraw liquidity', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'withdraw', [0n])));
+  $('form-bid').addEventListener('submit', placeBid);
+  $('form-ask').addEventListener('submit', placeAsk);
+  $('btn-lp-collect').addEventListener('click', () => send('Collect trading fees', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'collect')));
+  $('btn-lp-claim').addEventListener('click', () => send('Claim interest income', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'claim')));
+  $('btn-lp-withdraw').addEventListener('click', () => send('Withdraw both sides', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'withdraw', [0n])));
+  $('btn-bid-withdraw').addEventListener('click', () => send('Withdraw the bid', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'withdrawBid', [0n])));
+  $('btn-ask-withdraw').addEventListener('click', () => send('Withdraw the ask', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'withdrawAsk', [0n])));
   $('btn-inherit-lp').addEventListener('click', () => { const a = $('ex-addr').value.trim(); if (!looksLikeAddress(a)) { toast('Enter the wallet first.', 'warn'); return; } send('Hand the liquidity to the heirs', () => write(D.liquidityDesk, A.liquidityDeskAbi, 'inherit', [addr(a)])); });
   $('btn-buy-lot').addEventListener('click', buyLot);
   $('btn-faucet-stack').addEventListener('click', () => { if (isZero(D.stack)) { toast('No test STACK on this chain.', 'bad'); return; } send('Mint test STACK', () => write(D.stack, A.wstAbi, 'mint', [me, 1000n * WAD])); });
+  // the Stability Pool
   $('btn-sp-deposit').addEventListener('click', () => { const a = toWad($('sp-amount').value); if (a > 0n) send('Deposit to the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'provideToSP', [a])); });
   $('btn-sp-withdraw').addEventListener('click', () => { const a = toWad($('sp-amount').value) || bal.spDep; if (a === 0n) { toast('Nothing deposited.', 'bad'); return; } send('Withdraw from the pool', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [a])); });
-  $('btn-sp-claim').addEventListener('click', () => send('Claim pool gain', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [0n])));
+  $('btn-sp-claim').addEventListener('click', () => send('Claim gain and income', () => write(D.stabilityPool, A.stabilityPoolAbi, 'withdrawFromSP', [0n])));
 
-  if ($('heir-rows').children.length === 0) addHeirRow();
-  showStep(1);
+  if ($('heir-rows').children.length === 0) addHeirRow(PLAN_MAIN);
   await refresh();
   refreshTimer = setInterval(() => refresh().catch(() => {}), 15000);
   if (window.ethereum && (await window.ethereum.request({ method: 'eth_accounts' })).length) connect();

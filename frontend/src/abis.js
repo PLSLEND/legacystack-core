@@ -28,8 +28,13 @@ export const borrowerOperationsAbi = parseAbi([
   'function setAutoRepay(uint8 cadence)',
   'function skimYield(address owner, address upperHint, address lowerHint)',
   'function autoRepay(address owner) view returns (uint8 cadence, uint64 lastSkim, uint256 baseline)',
+  'function repayLUSD(uint256 amount, address upperHint, address lowerHint)',
   'function closeTrove()',
   'function claimCollateral()',
+  'function SHARE_BPS() view returns (uint256)',
+  'function SHARE_AUTO_BPS() view returns (uint256)',
+  'function SHARE_CUT_BPS() view returns (uint256)',
+  'function SHARE_CUT_CAP() view returns (uint256)',
 ]);
 
 export const stabilityPoolAbi = parseAbi([
@@ -38,8 +43,25 @@ export const stabilityPoolAbi = parseAbi([
   'function withdrawETHGainToTrove(address, address)',
   'function getCompoundedLUSDDeposit(address) view returns (uint256)',
   'function getDepositorETHGain(address) view returns (uint256)',
+  'function getDepositorLQTYGain(address) view returns (uint256)',
   'function getTotalLUSDDeposits() view returns (uint256)',
   'function getETH() view returns (uint256)',
+]);
+
+// The Stability Pool's issuance slot pays the protocol's interest in OCT (#177)
+export const issuanceAbi = parseAbi([
+  'function pending() view returns (uint256)',
+  'function accounted() view returns (uint256)',
+  'function paidOut() view returns (uint256)',
+]);
+
+// Where TroveManager mints the interest: half to the pool's depositors, half to the desk's bids (#177)
+export const interestSplitterAbi = parseAbi([
+  'function pending() view returns (uint256)',
+  'function split() returns (uint256 toPool, uint256 toDesk, uint256 toBuffer)',
+  'function totalToPool() view returns (uint256)',
+  'function totalToDesk() view returns (uint256)',
+  'function totalToBuffer() view returns (uint256)',
 ]);
 
 export const priceFeedAbi = parseAbi([
@@ -182,16 +204,38 @@ export const keeperDeskAbi = parseAbi([
 
 export const liquidityDeskAbi = parseAbi([
   'function provide(uint256 octAmount, uint256 counterAmount) returns (uint256 tokenId, uint256 octUsed, uint256 counterUsed)',
+  'function provideCounter(uint256 counterAmount) returns (uint256 tokenId, uint256 counterUsed)',
+  'function provideOct(uint256 octAmount) returns (uint256 tokenId, uint256 octUsed)',
   'function collect() returns (uint256 oct, uint256 counter)',
+  'function claim() returns (uint256 amount)',
   'function withdraw(uint128 liquidity) returns (uint256 oct, uint256 counter)',
+  'function withdrawBid(uint128 liquidity) returns (uint256 oct, uint256 counter)',
+  'function withdrawAsk(uint128 liquidity) returns (uint256 oct, uint256 counter)',
   'function inherit(address owner)',
   'function claimEscrow(address token)',
   'function positionOf(address) view returns (uint256)',
+  'function bidOf(address) view returns (uint256)',
+  'function askOf(address) view returns (uint256)',
+  'function positionsOf(address) view returns (uint256 band, uint256 bid, uint256 ask)',
+  'function hasPositions(address) view returns (bool)',
   'function liquidityOf(address) view returns (uint128)',
+  'function bidLiquidityOf(address) view returns (uint128)',
+  'function askLiquidityOf(address) view returns (uint128)',
+  'function totalBidLiquidity() view returns (uint128)',
   'function owedOf(address) view returns (uint256 oct, uint256 counter)',
+  'function rewardOf(address) view returns (uint256)',
+  'function octOf(address) view returns (uint256)',
+  'function askOctOf(address) view returns (uint256)',
   'function atPar() view returns (bool)',
+  'function bidPlaceable() view returns (bool)',
+  'function askPlaceable() view returns (bool)',
+  'function currentTick() view returns (int24)',
+  'function rangeOf(uint8 kind) view returns (int24 lower, int24 upper)',
+  'function octIsToken0() view returns (bool)',
   'function totalOctProvided() view returns (uint256)',
   'function totalCounterProvided() view returns (uint256)',
+  'function totalRewardNotified() view returns (uint256)',
+  'function totalRewardPaid() view returns (uint256)',
   'function escrowOf(address, address) view returns (uint256)',
 ]);
 

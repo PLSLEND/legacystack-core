@@ -103,6 +103,31 @@ contract KeeperDeskTest is LegacyStackBase {
         assertEq(IDesk(desk).pending(50).skimmable.length, 0);          // done for this quarter
     }
 
+    function test_pendingListsARegularVaultOnceItsShareIsWorthTaking() public {
+        IDesk.Pending memory w = IDesk(desk).pending(50);
+        assertEq(w.skimmable.length, 0);
+        IMockWst(wst).setStEthPerToken(1.2e18 * 101 / 100);             // +1%: ~0.99 wstETH of yield on alice's 100, 0.059 on bob's 6
+        w = IDesk(desk).pending(50);
+        // alice's share is 0.1485 wstETH and the caller's cut 0.01485: listed; bob's cut would be 0.0009: not worth a call yet
+        assertEq(w.skimmable.length, 1);
+        assertEq(w.skimmable[0], alice);
+        assertEq(w.octReward, 0);
+        assertApproxEqAbs(w.collReward, 0.01485e18, 1e13);
+        (uint debt0, uint coll0,,) = ITM(tm).getEntireDebtAndColl(alice);
+        uint pot0 = IMockWst(wst).balanceOf(buffer);
+        address[] memory none;
+        vm.prank(keeper);
+        (uint octPaid, uint collPaid) = IDesk(desk).run(none, none, w.skimmable, false);
+        assertEq(octPaid, 0);
+        assertApproxEqAbs(collPaid, w.collReward, 1e13, "the cut, in wstETH, to the caller");
+        assertEq(IMockWst(wst).balanceOf(keeper), collPaid);
+        (uint debt1, uint coll1,,) = ITM(tm).getEntireDebtAndColl(alice);
+        assertEq(debt1, debt0, "a regular vault is not repaid");
+        assertApproxEqAbs(coll0 - coll1, 0.1485149e18, 1e13, "15% of the yield left the vault");
+        assertEq(IMockWst(wst).balanceOf(buffer) - pot0, coll0 - coll1 - collPaid, "the rest of the share is in the pot");
+        assertEq(IDesk(desk).pending(50).skimmable.length, 0, "nothing left to take");
+    }
+
     function test_reserveHousekeepingIsItsOwnCategory() public {
         IDesk.Pending memory w = IDesk(desk).pending(50);
         assertFalse(w.tend, "nothing above target");
